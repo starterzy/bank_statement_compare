@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>银行流水对账</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>银行流水对账</h1>
+  <form id="form">
+    <label>银行对账单 <input type="file" id="bank" accept=".xls,.xlsx" required></label>
+    <label>数据库流水 <input type="file" id="db" accept=".xls,.xlsx,.csv" required></label>
+    <label>Claude API Key <input type="password" id="api_key"></label>
+    <button type="submit">开始对比</button>
+  </form>
+  <div id="status"></div>
+  <div id="summary"></div>
+  <a id="download" style="display:none">下载 Excel 结果</a>
+  <script src="app.js"></script>
+</body>
+</html>
