@@ -39,3 +39,21 @@ def test_to_int_and_clean_str():
     assert to_int("~") is None
     assert clean_str(" 电费 ") == "电费"
     assert clean_str("~") is None
+
+
+def test_to_decimal_nan_inf_and_bad_string():
+    assert to_decimal(float("nan")) == Decimal("0")
+    assert to_decimal(float("inf")) == Decimal("0")
+    assert to_decimal(float("-inf")) == Decimal("0")
+    assert to_decimal(Decimal("NaN")) == Decimal("0")
+    assert to_decimal("abc") == Decimal("0")
+
+
+def test_to_int_nan_inf():
+    assert to_int(float("nan")) is None
+    assert to_int(float("inf")) is None
+
+
+def test_parse_date_nat():
+    import pandas as pd
+    assert parse_date(pd.NaT) is None

@@ -1,22 +1,30 @@
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 
 def to_decimal(value) -> Decimal:
-    if value is None:
+    if value is None or isinstance(value, bool):
         return Decimal("0")
     if isinstance(value, Decimal):
+        if not value.is_finite():
+            return Decimal("0")
         return value.quantize(Decimal("0.01"))
-    if isinstance(value, bool):
-        return Decimal("0")
-    if isinstance(value, (int, float)):
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return Decimal("0")
         return Decimal(str(value)).quantize(Decimal("0.01"))
+    if isinstance(value, int):
+        return Decimal(value).quantize(Decimal("0.01"))
     s = str(value).strip().replace(",", "").replace("，", "")
     if s in ("", "-", "~", "None", "nan", "NaN", "NaT", "null"):
         return Decimal("0")
-    return Decimal(s).quantize(Decimal("0.01"))
+    try:
+        return Decimal(s).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
 
 
 def to_int(value) -> Optional[int]:
@@ -25,20 +33,22 @@ def to_int(value) -> Optional[int]:
     if isinstance(value, int):
         return value
     if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
         return int(value)
     s = str(value).strip()
     if s in ("", "~", "None", "nan", "NaN", "NaT", "null"):
         return None
     try:
         return int(float(s))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return None
 
 
 def clean_str(value) -> Optional[str]:
     if value is None:
         return None
-    if isinstance(value, float) and value != value:  # NaN
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
         return None
     s = str(value).strip()
     if s in ("", "~", "None", "nan", "NaN", "NaT", "null"):
@@ -50,7 +60,10 @@ def parse_date(value) -> Optional[date]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.date()
+        result = value.date()
+        if isinstance(result, datetime):  # pandas NaT.date() returns NaT (a datetime subclass)
+            return None
+        return result
     if isinstance(value, date):
         return value
     s = str(value).strip()
