@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+openpyxl
+xlrd
+pandas
+anthropic
+python-multipart
+pytest
