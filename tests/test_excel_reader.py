@@ -23,3 +23,12 @@ def test_sample_rows():
     samples = sample_rows(raw, 3)
     assert len(samples) == 3
     assert "EXPLANATION" in samples[0]
+
+
+def test_read_empty_sheet(tmp_path):
+    import openpyxl
+    p = tmp_path / "empty.xlsx"
+    openpyxl.Workbook().save(p)
+    raw = read_excel(str(p))
+    assert raw.headers == []
+    assert raw.rows == []

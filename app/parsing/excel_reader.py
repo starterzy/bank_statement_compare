@@ -25,6 +25,8 @@ def read_excel(path: str) -> RawTable:
     engine = "xlrd" if path.lower().endswith(".xls") else "openpyxl"
     df = pd.read_excel(path, header=None, dtype=object, engine=engine)
     data = df.values.tolist()
+    if not data:
+        return RawTable()
     header_idx = _detect_header_row(data)
     headers = [str(c).strip() if c is not None else "" for c in data[header_idx]]
     rows = []
