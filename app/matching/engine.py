@@ -34,15 +34,15 @@ def _date_dist(a: str, b: str) -> int:
 def _greedy_1to1(bank, db) -> Tuple[List[MatchPair], List[Transaction], List[Transaction]]:
     remaining_db = list(db)
     matched = []
+    unmatched_bank = []
     for b in sorted(bank, key=lambda t: t.date):
         cands = [d for d in remaining_db if d.amount == b.amount]
         if not cands:
+            unmatched_bank.append(b)
             continue
         best = min(cands, key=lambda d: _date_dist(b.date, d.date))
         matched.append(MatchPair(bank=b, db=best))
         remaining_db.remove(best)
-    matched_bank_ids = {id(p.bank) for p in matched}
-    unmatched_bank = [b for b in bank if id(b) not in matched_bank_ids]
     return matched, unmatched_bank, remaining_db
 
 
@@ -55,7 +55,7 @@ def match_transactions(bank_txs, db_txs, max_merge_size=8) -> MatchResult:
     for t in db_txs:
         db_groups[(t.month, t.direction)].append(t)
 
-    for key in set(bank_groups) | set(db_groups):
+    for key in sorted(set(bank_groups) | set(db_groups)):
         matched, un_bank, un_db = _greedy_1to1(bank_groups.get(key, []), db_groups.get(key, []))
         result.matched.extend(matched)
         # 合并检测在 Task 6 补全；此处直接归入未匹配

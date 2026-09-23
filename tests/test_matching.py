@@ -37,10 +37,20 @@ def test_no_match_different_direction():
 def test_duplicate_amount_uses_nearest_date():
     bank = [_tx("bank", "2026-01", "debit", "30", "05"),
             _tx("bank", "2026-01", "debit", "30", "20")]
-    db = [_tx("db", "2026-01", "debit", "30", "06"),
-          _tx("db", "2026-01", "debit", "30", "21")]
+    db = [_tx("db", "2026-01", "debit", "30", "21"),
+          _tx("db", "2026-01", "debit", "30", "06")]
     r = match_transactions(bank, db)
     assert len(r.matched) == 2
     # 05 应配 06，20 应配 21
     for p in r.matched:
         assert abs(int(p.bank.date[-2:]) - int(p.db.date[-2:])) <= 1
+
+
+def test_partition_invariant_and_merged_empty():
+    bank = [_tx("bank", "2026-01", "debit", "30", "05"),
+            _tx("bank", "2026-01", "debit", "6.14", "08")]
+    db = [_tx("db", "2026-01", "debit", "30", "06")]
+    r = match_transactions(bank, db)
+    assert r.merged == []
+    assert len(r.matched) + len(r.unmatched_bank) == len(bank)
+    assert len(r.matched) + len(r.unmatched_db) == len(db)
