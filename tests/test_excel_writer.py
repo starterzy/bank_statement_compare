@@ -34,3 +34,20 @@ def test_write_result_excel():
     assert "月度汇总" in wb.sheetnames
     ws = wb["逐笔明细"]
     assert ws.max_row >= 5
+
+
+def test_write_result_excel_bank_merged_sides():
+    r = MatchResult(
+        merged=[MergeGroup(target=_tx("bank", "还本付息", "30"),
+                           parts=[_tx("db", "归还委贷", "10"), _tx("db", "利息", "20")],
+                           kind="bank_merged")],
+    )
+    tmp = os.path.join(tempfile.mkdtemp(), "out.xlsx")
+    write_result_excel(r, [], [], [], tmp)
+    ws = openpyxl.load_workbook(tmp)["逐笔明细"]
+    # row 2 = target（银行侧）→ 银行摘要(G=7) 有值，数据库摘要(I=9) 为空
+    assert ws.cell(row=2, column=7).value == "还本付息"
+    assert ws.cell(row=2, column=9).value in (None, "")
+    # row 3 = part（数据库侧）→ 数据库摘要(I=9) 有值，银行摘要(G=7) 为空
+    assert ws.cell(row=3, column=9).value == "归还委贷"
+    assert ws.cell(row=3, column=7).value in (None, "")

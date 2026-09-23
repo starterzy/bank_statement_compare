@@ -24,12 +24,23 @@ def write_result_excel(match_result: MatchResult, monthly_diffs: List[MonthlyDif
                    p.bank.date, p.bank.counterparty, p.bank.summary,
                    p.db.date, p.db.summary, p.db.voucher_no, p.db.detail_index])
     for g in match_result.merged:
-        ws.append(["合并记账", g.target.month, _dir(g.target), _amt(g.target.amount),
-                   "", "", g.target.summary,
-                   "", g.target.summary, g.target.voucher_no, g.target.detail_index])
-        for part in g.parts:
-            ws.append(["  └ 拆分", part.month, _dir(part), _amt(part.amount),
-                       part.date, part.counterparty, part.summary, "", "", "", ""])
+        if g.kind == "bank_merged":
+            # 银行一条 = 数据库多条：target 在银行侧，parts 在数据库侧
+            ws.append(["合并记账", g.target.month, _dir(g.target), _amt(g.target.amount),
+                       g.target.date, g.target.counterparty, g.target.summary,
+                       "", "", "", ""])
+            for part in g.parts:
+                ws.append(["  └ 拆分", part.month, _dir(part), _amt(part.amount),
+                           "", "", "",
+                           part.date, part.summary, part.voucher_no, part.detail_index])
+        else:
+            # 数据库一条 = 银行多条：target 在数据库侧，parts 在银行侧
+            ws.append(["合并记账", g.target.month, _dir(g.target), _amt(g.target.amount),
+                       "", "", "",
+                       g.target.date, g.target.summary, g.target.voucher_no, g.target.detail_index])
+            for part in g.parts:
+                ws.append(["  └ 拆分", part.month, _dir(part), _amt(part.amount),
+                           part.date, part.counterparty, part.summary, "", "", "", ""])
     for t in match_result.unmatched_bank:
         ws.append(["仅银行有", t.month, _dir(t), _amt(t.amount), t.date, t.counterparty, t.summary,
                    "", "", "", ""])
