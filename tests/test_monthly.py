@@ -35,3 +35,5 @@ def test_compare_monthly_mismatch_and_swap():
     diffs = compare_monthly(bank, db)
     assert diffs[0].consistent is False
     assert diffs[0].swap_suspected is True
+    assert diffs[0].debit_diff == Decimal("50")
+    assert diffs[0].credit_diff == Decimal("-50")

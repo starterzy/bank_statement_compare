@@ -27,9 +27,17 @@ def test_summary_all_matched():
 
 
 def test_summary_unmatched_before_merged():
-    r = MatchResult(unmatched_bank=[_tx("bank")])
+    r = MatchResult(unmatched_bank=[_tx("bank")],
+                    merged=[MergeGroup(target=_tx("db"), parts=[_tx("bank")], kind="db_merged")])
     s = build_summary(r, [_diff(True)])
     assert s["status"] == "unmatched"
+
+
+def test_summary_merged_only():
+    r = MatchResult(merged=[MergeGroup(target=_tx("db"), parts=[_tx("bank")], kind="db_merged")])
+    s = build_summary(r, [_diff(True)])
+    assert s["status"] == "merged"
+    assert s["message"] == "存在合并记账"
 
 
 def test_summary_monthly_mismatch_most_severe():
