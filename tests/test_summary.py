@@ -45,3 +45,13 @@ def test_summary_monthly_mismatch_most_severe():
     s = build_summary(r, [_diff(False)])
     assert s["status"] == "monthly_mismatch"
     assert s["swap_warning"] is True
+
+
+def test_summary_single_sided_month_not_mismatch():
+    r = MatchResult(matched=[MatchPair(_tx("bank"), _tx("db"))])
+    single = MonthlyDiff(month="2026-02", bank_debit=Decimal("0"), db_debit=Decimal("50"),
+                         debit_diff=Decimal("-50"), bank_credit=Decimal("0"), db_credit=Decimal("0"),
+                         credit_diff=Decimal("0"), single_sided=True)
+    s = build_summary(r, [_diff(True), single])
+    assert s["status"] == "all_matched"
+    assert s["single_sided_months"] == [{"month": "2026-02", "only_in": "db"}]

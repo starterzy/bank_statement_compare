@@ -24,6 +24,7 @@ class MonthlyDiff:
     db_credit: Decimal
     credit_diff: Decimal
     swap_suspected: bool = False
+    single_sided: bool = False
 
     @property
     def consistent(self) -> bool:
@@ -42,6 +43,7 @@ def compare_monthly(bank_txs: List[Transaction], db_txs: List[Transaction]) -> L
             month=month,
             bank_debit=b["debit"], db_debit=d["debit"], debit_diff=b["debit"] - d["debit"],
             bank_credit=b["credit"], db_credit=d["credit"], credit_diff=b["credit"] - d["credit"],
+            single_sided=(month not in bank) or (month not in db),
         )
         # 对称错位诊断：银行借方≈数据库贷方 且 银行贷方≈数据库借方
         diff.swap_suspected = (b["debit"] == d["credit"] and b["credit"] == d["debit"]

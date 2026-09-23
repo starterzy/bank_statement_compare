@@ -37,3 +37,13 @@ def test_compare_monthly_mismatch_and_swap():
     assert diffs[0].swap_suspected is True
     assert diffs[0].debit_diff == Decimal("50")
     assert diffs[0].credit_diff == Decimal("-50")
+
+
+def test_compare_monthly_single_sided_not_consistent_flag():
+    bank = [_tx("bank", "2026-01", "debit", "100")]
+    db = [_tx("db", "2026-01", "debit", "100"), _tx("db", "2026-02", "debit", "50")]
+    diffs = {d.month: d for d in compare_monthly(bank, db)}
+    assert diffs["2026-01"].single_sided is False
+    assert diffs["2026-01"].consistent is True
+    assert diffs["2026-02"].single_sided is True
+    assert diffs["2026-02"].consistent is False  # arithmetic diff nonzero, but flagged single_sided

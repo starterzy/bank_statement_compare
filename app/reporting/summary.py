@@ -15,7 +15,7 @@ def _message(status: str) -> str:
 
 
 def build_summary(match_result: MatchResult, monthly_diffs: List[MonthlyDiff]) -> dict:
-    mismatches = [d for d in monthly_diffs if not d.consistent]
+    mismatches = [d for d in monthly_diffs if not d.single_sided and not d.consistent]
     unmatched_bank = match_result.unmatched_bank
     unmatched_db = match_result.unmatched_db
     merged = match_result.merged
@@ -33,6 +33,10 @@ def build_summary(match_result: MatchResult, monthly_diffs: List[MonthlyDiff]) -
         "status": status,
         "message": _message(status),
         "swap_warning": any(d.swap_suspected for d in monthly_diffs),
+        "single_sided_months": [
+            {"month": d.month, "only_in": "bank" if (d.bank_debit or d.bank_credit) else "db"}
+            for d in monthly_diffs if d.single_sided
+        ],
         "monthly_mismatches": [
             {"month": d.month, "debit_diff": str(d.debit_diff), "credit_diff": str(d.credit_diff)}
             for d in mismatches

@@ -1,3 +1,5 @@
+import pytest
+
 from app.llm.client import build_prompt, _parse_json
 
 
@@ -16,3 +18,9 @@ def test_build_prompt_mentions_headers_and_fields():
     assert "date" in p
     assert "交易时间" in p
     assert "JSON" in p
+
+
+def test_parse_json_rejects_non_dict():
+    import pytest
+    with pytest.raises(ValueError):
+        _parse_json('["date", "debit"]')

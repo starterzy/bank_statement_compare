@@ -32,7 +32,10 @@ def _parse_json(text: str) -> Dict:
     end = text.rfind("}")
     if start != -1 and end != -1:
         text = text[start:end + 1]
-    return json.loads(text)
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError(f"预期 JSON 对象，实际得到 {type(data).__name__}")
+    return data
 
 
 def claude_map_bank_columns(headers: List[str], samples: List[Dict], api_key: str, model: str) -> Dict:
