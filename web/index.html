@@ -2,36 +2,74 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>银行流水对账</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>银行流水对账</h1>
+  <header class="hero">
+    <h1>银行流水对账</h1>
+    <p class="subtitle">直连财务库 · 逐笔核对 · 月度发生额核对</p>
+  </header>
 
-  <fieldset>
-    <legend>数据库流水查询</legend>
-    <label>公司 <select id="company"></select></label>
-    <label>银行账户 <select id="account"></select></label>
-    <button type="button" id="query_btn">查询流水</button>
-    <div id="query_result"></div>
-  </fieldset>
+  <main>
+    <section class="card">
+      <h2>数据库流水查询</h2>
+      <div class="row">
+        <label class="field">公司
+          <select id="company"></select>
+        </label>
+        <label class="field">银行账户
+          <select id="account"></select>
+        </label>
+        <label class="field">月份
+          <select id="month">
+            <option value="">全年</option>
+            <option value="01">1 月</option>
+            <option value="02">2 月</option>
+            <option value="03">3 月</option>
+            <option value="04">4 月</option>
+            <option value="05">5 月</option>
+            <option value="06">6 月</option>
+            <option value="07">7 月</option>
+            <option value="08">8 月</option>
+            <option value="09">9 月</option>
+            <option value="10">10 月</option>
+            <option value="11">11 月</option>
+            <option value="12">12 月</option>
+          </select>
+        </label>
+      </div>
+      <button type="button" id="query_btn" class="btn btn-primary">查询流水</button>
+      <div id="query_result"></div>
+    </section>
 
-  <hr>
-
-  <form id="form">
-    <label>银行对账单 <input type="file" id="bank" accept=".xls,.xlsx" required></label>
-    <fieldset id="db_source_group">
-      <legend>数据库流水来源</legend>
-      <label><input type="radio" name="db_source" value="database" checked> 直连数据库（用上方所选公司/账户）</label>
-      <label><input type="radio" name="db_source" value="upload"> 上传文件</label>
-    </fieldset>
-    <label id="db_upload_label" style="display:none">数据库流水 <input type="file" id="db" accept=".xls,.xlsx,.csv"></label>
-    <label>Claude API Key <input type="password" id="api_key"></label>
-    <button type="submit">开始对比</button>
-  </form>
-  <div id="status"></div>
-  <div id="summary"></div>
-  <a id="download" style="display:none">下载 Excel 结果</a>
+    <section class="card">
+      <h2>对账</h2>
+      <form id="form">
+        <div class="row">
+          <label class="field">银行对账单
+            <input type="file" id="bank" accept=".xls,.xlsx" required>
+          </label>
+          <label class="field" id="db_upload_label" style="display:none">数据库流水
+            <input type="file" id="db" accept=".xls,.xlsx,.csv">
+          </label>
+        </div>
+        <fieldset id="db_source_group">
+          <legend>数据库流水来源</legend>
+          <label class="inline"><input type="radio" name="db_source" value="database" checked> 直连数据库（用上方所选公司/账户/月份）</label>
+          <label class="inline"><input type="radio" name="db_source" value="upload"> 上传文件</label>
+        </fieldset>
+        <label class="field">Claude API Key
+          <input type="password" id="api_key" placeholder="sk-...">
+        </label>
+        <button type="submit" class="btn btn-primary">开始对比</button>
+      </form>
+      <div id="status" class="status"></div>
+      <div id="summary"></div>
+      <a id="download" class="download" style="display:none">下载 Excel 结果</a>
+    </section>
+  </main>
   <script src="app.js"></script>
 </body>
 </html>

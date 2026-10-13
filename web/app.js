@@ -1,6 +1,7 @@
-// 前端逻辑：公司/账户选择、流水查询展示、对账表单提交。
+// 前端逻辑：公司/账户/月份选择、流水查询展示、对账表单提交。
 const companySelect = document.getElementById("company");
 const accountSelect = document.getElementById("account");
+const monthSelect = document.getElementById("month");
 const queryBtn = document.getElementById("query_btn");
 const queryResult = document.getElementById("query_result");
 const form = document.getElementById("form");
@@ -76,43 +77,48 @@ function esc(s) {
   }[ch]));
 }
 
+function stat(k, v) {
+  return '<div class="stat"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + "</span></div>";
+}
+
 function renderStatement(d) {
-  const head =
-    "<p>" +
-    "期初余额 <b>" + esc(d.opening) + "</b> ｜ " +
-    "本年借方(收) <b>" + esc(d.total_debit) + "</b> ｜ " +
-    "本年贷方(付) <b>" + esc(d.total_credit) + "</b> ｜ " +
-    "期末余额 <b>" + esc(d.closing) + "</b> ｜ " +
-    "笔数 <b>" + esc(d.count) + "</b>" +
-    "</p>";
+  const overview =
+    '<div class="overview">' +
+    stat("期初余额", d.opening) +
+    stat("借方(收)合计", d.total_debit) +
+    stat("贷方(付)合计", d.total_credit) +
+    stat("期末余额", d.closing) +
+    stat("笔数", d.count) +
+    "</div>";
 
   let monthly =
-    "<h3>月度发生额</h3><table><tr><th>月份</th><th>借方(收)</th><th>贷方(付)</th><th>笔数</th><th>期末余额</th></tr>";
+    "<h3>月度发生额</h3><table><thead><tr><th>月份</th><th>借方(收)</th><th>贷方(付)</th><th>笔数</th><th>期末余额</th></tr></thead><tbody>";
   for (const m of d.monthly || []) {
+    const hl = d.selected_month && m.month === d.selected_month ? ' class="hl"' : "";
     monthly +=
-      "<tr><td>" + esc(m.month) + "</td>" +
+      "<tr" + hl + "><td>" + esc(m.month) + "</td>" +
       '<td class="num">' + esc(m.debit) + "</td>" +
       '<td class="num">' + esc(m.credit) + "</td>" +
-      "<td>" + esc(m.count) + "</td>" +
+      '<td class="num">' + esc(m.count) + "</td>" +
       '<td class="num">' + esc(m.balance) + "</td></tr>";
   }
-  monthly += "</table>";
+  monthly += "</tbody></table>";
 
   let txs =
     "<h3>每笔流水（" + esc(d.count) + " 笔）</h3>" +
-    "<table><tr><th>日期</th><th>凭证号</th><th>序号</th><th>摘要</th><th>借方(收)</th><th>贷方(付)</th></tr>";
+    "<table><thead><tr><th>日期</th><th>凭证号</th><th>序号</th><th>摘要</th><th>借方(收)</th><th>贷方(付)</th></tr></thead><tbody>";
   for (const t of d.transactions || []) {
     txs +=
       "<tr><td>" + esc(t.date) + "</td>" +
       "<td>" + esc(t.voucher_no) + "</td>" +
-      "<td>" + esc(t.detail_index) + "</td>" +
+      '<td class="num">' + esc(t.detail_index) + "</td>" +
       "<td>" + esc(t.summary) + "</td>" +
       '<td class="num">' + esc(t.debit) + "</td>" +
       '<td class="num">' + esc(t.credit) + "</td></tr>";
   }
-  txs += "</table>";
+  txs += "</tbody></table>";
 
-  queryResult.innerHTML = head + monthly + txs;
+  queryResult.innerHTML = overview + monthly + txs;
 }
 
 async function queryStatement() {
@@ -126,6 +132,7 @@ async function queryStatement() {
     book: c.book,
     accasoa: c.accasoa,
     f11: accountSelect.value,
+    month: monthSelect.value,
   });
   try {
     const resp = await fetch("/api/statement?" + params.toString());
@@ -150,9 +157,11 @@ form.addEventListener("submit", async (e) => {
   const dbSource = form.querySelector('input[name="db_source"]:checked').value;
   if (dbSource === "upload" && !dbInput.files.length) {
     statusEl.textContent = "请选择数据库流水文件";
+    statusEl.className = "status err";
     return;
   }
   statusEl.textContent = "处理中…";
+  statusEl.className = "status";
   summaryEl.textContent = "";
   downloadEl.style.display = "none";
 
@@ -160,6 +169,7 @@ form.addEventListener("submit", async (e) => {
   fd.append("bank", bankInput.files[0]);
   fd.append("api_key", apiKeyInput.value);
   fd.append("db_source", dbSource);
+  fd.append("month", monthSelect.value);
   if (dbSource === "upload") {
     fd.append("db", dbInput.files[0]);
   } else {
@@ -176,9 +186,11 @@ form.addEventListener("submit", async (e) => {
     const data = await resp.json();
     if (data.error) {
       statusEl.textContent = "错误：" + data.error;
+      statusEl.className = "status err";
       return;
     }
     statusEl.textContent = "完成";
+    statusEl.className = "status ok";
     summaryEl.textContent = data.summary || "";
     if (data.id) {
       downloadEl.href = "/api/result/" + data.id + "/excel";
@@ -186,6 +198,7 @@ form.addEventListener("submit", async (e) => {
     }
   } catch (err) {
     statusEl.textContent = "错误：" + err;
+    statusEl.className = "status err";
   }
 });
 

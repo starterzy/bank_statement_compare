@@ -25,7 +25,8 @@ def _make_bank_mapper(api_key: str, model: str):
 @app.post("/api/compare")
 async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
                   api_key: str = Form(""), db_source: str = Form("database"),
-                  account: str = Form(""), book: str = Form(""), accasoa: str = Form("")):
+                  account: str = Form(""), book: str = Form(""), accasoa: str = Form(""),
+                  month: str = Form("")):
     key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         return {"error": "缺少 Claude API key"}
@@ -36,7 +37,8 @@ async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
 
     if db_source == "database":
         try:
-            db_txs = fetch_bank_detail(f11=account or None, book=book or None, accasoa=accasoa or None)
+            db_txs = fetch_bank_detail(f11=account or None, book=book or None,
+                                       accasoa=accasoa or None, month=month or None)
         except Exception as e:
             return {"error": f"数据库读取失败: {e}"}
         result = run_compare_with_db(bank_path, db_txs, _make_bank_mapper(key, LLM_MODEL))
@@ -70,9 +72,10 @@ async def bank_accounts(org: str = ""):
 
 
 @app.get("/api/statement")
-async def statement(f11: str = "", book: str = "", accasoa: str = "", year: str = ""):
+async def statement(f11: str = "", book: str = "", accasoa: str = "", year: str = "", month: str = ""):
     try:
-        return fetch_statement(f11=f11 or None, book=book or None, accasoa=accasoa or None, year=year or None)
+        return fetch_statement(f11=f11 or None, book=book or None, accasoa=accasoa or None,
+                               year=year or None, month=month or None)
     except Exception as e:
         return {"error": f"数据库读取失败: {e}"}
 

@@ -81,12 +81,12 @@ def map_db_rows(rows: List[Dict]) -> List[Transaction]:
 
 # 与 NC 系统导出口径一致的核心 WHERE（关联单据自由项 + 期间等过滤）。
 # {fcond} 由调用方填入账户过滤条件：具体账户 = F11=:f11，全部账户 = F11<>'N/A'。
+# {pcond} 期间条件：单月 = adjustperiod=:month，全年 = adjustperiod 在 :pfrom..:pto。
 _QUERY_SQL = """
 SELECT DISTINCT {cols}
 FROM NCCDATA.gl_detail gl_detail, NCCDATA.gl_docfree1
 WHERE gl_detail.yearv = :year
-  AND gl_detail.adjustperiod >= :pfrom
-  AND gl_detail.adjustperiod <= :pto
+  {pcond}
   AND gl_detail.assid = gl_docfree1.assid
   AND gl_detail.pk_accountingbook = :book
   AND gl_detail.pk_managerv <> 'N/A'
@@ -171,11 +171,12 @@ def list_bank_accounts(cfg: Optional[Dict[str, str]] = None, org: Optional[str] 
 
 def fetch_bank_detail(cfg: Optional[Dict[str, str]] = None, year: Optional[str] = None,
                       f11: Optional[str] = None, book: Optional[str] = None,
-                      accasoa: Optional[str] = None) -> List[Transaction]:
+                      accasoa: Optional[str] = None, month: Optional[str] = None) -> List[Transaction]:
     """连库查询银行流水，返回 Transaction 列表。
 
     f11 为空（None/""）→ 查该科目+账簿下「全部银行账户」的流水（对照所有）；
     f11 给出 → 只查该账户（F11 = bd_bankaccsub.pk_bankaccsub）。
+    month 给出（"01".."12"）→ 只查该月；为空 → 查 DB_PERIOD_FROM..DB_PERIOD_TO。
     """
     cfg = cfg or get_db_config()
     year = year or cfg["DB_YEAR"]
@@ -187,20 +188,28 @@ def fetch_bank_detail(cfg: Optional[Dict[str, str]] = None, year: Optional[str] 
     else:
         fcond = "AND gl_docfree1.F11 <> 'N/A'"
 
+    if month:
+        pcond = "AND gl_detail.adjustperiod = :month"
+    else:
+        pcond = "AND gl_detail.adjustperiod >= :pfrom AND gl_detail.adjustperiod <= :pto"
+
     conn = _connect(cfg)
     try:
         cur = conn.cursor()
         cols = ", ".join(f"gl_detail.{c}" for c in DB_SELECT_COLUMNS)
         params = {
             "year": year,
-            "pfrom": cfg["DB_PERIOD_FROM"],
-            "pto": cfg["DB_PERIOD_TO"],
             "book": book,
             "accasoa": accasoa,
         }
+        if month:
+            params["month"] = month
+        else:
+            params["pfrom"] = cfg["DB_PERIOD_FROM"]
+            params["pto"] = cfg["DB_PERIOD_TO"]
         if f11:
             params["f11"] = f11
-        cur.execute(_QUERY_SQL.format(cols=cols, fcond=fcond), params)
+        cur.execute(_QUERY_SQL.format(cols=cols, fcond=fcond, pcond=pcond), params)
         rows = [dict(zip(DB_SELECT_COLUMNS, r)) for r in cur.fetchall()]
     finally:
         conn.close()
@@ -237,8 +246,13 @@ def _fmt(v: Decimal) -> str:
 
 def fetch_statement(cfg: Optional[Dict[str, str]] = None, f11: Optional[str] = None,
                     book: Optional[str] = None, accasoa: Optional[str] = None,
-                    year: Optional[str] = None) -> Dict:
-    """一次取全「期初/期末 + 月度发生额 + 每笔流水」，供查询页展示。"""
+                    year: Optional[str] = None, month: Optional[str] = None) -> Dict:
+    """一次取全「期初/期末 + 月度发生额 + 每笔流水」，供查询页展示。
+
+    month 为空 → 全年口径（期初=年初，期末=年末，发生额=全年合计，流水=全部）；
+    month 给出（"01".."12"）→ 该月口径：期初=年初+之前各月净额，发生额/流水只含该月，
+    期末=期初+该月净额；monthly 仍返回全年各月（供前端高亮选中月）。
+    """
     cfg = cfg or get_db_config()
     year = year or cfg["DB_YEAR"]
     book = book or cfg["DB_ACCOUNTING_BOOK"]
@@ -248,27 +262,41 @@ def fetch_statement(cfg: Optional[Dict[str, str]] = None, f11: Optional[str] = N
     opening = fetch_opening_balance(cfg, year=year, f11=f11, book=book, accasoa=accasoa)
 
     monthly: "OrderedDict[str, Dict]" = OrderedDict()
-    total_debit = Decimal(0)
-    total_credit = Decimal(0)
     for t in txs:
         m = monthly.setdefault(t.month, {"debit": Decimal(0), "credit": Decimal(0), "count": 0})
         m["debit"] += t.debit_amount
         m["credit"] += t.credit_amount
         m["count"] += 1
-        total_debit += t.debit_amount
-        total_credit += t.credit_amount
 
     running = opening
     monthly_rows = []
-    for month, m in monthly.items():
+    for mo, m in monthly.items():
         running += m["debit"] - m["credit"]
         monthly_rows.append({
-            "month": month,
+            "month": mo,
             "debit": _fmt(m["debit"]),
             "credit": _fmt(m["credit"]),
             "count": m["count"],
             "balance": _fmt(running),
         })
+
+    selected = f"{year}-{int(month):02d}" if month else None
+    if selected:
+        # 选中月期初 = 年初 + 之前各月净额；期末 = 期初 + 该月净额。
+        month_open = opening
+        for mo in monthly:
+            if mo < selected:
+                month_open += monthly[mo]["debit"] - monthly[mo]["credit"]
+        m = monthly.get(selected, {"debit": Decimal(0), "credit": Decimal(0), "count": 0})
+        total_debit = m["debit"]
+        total_credit = m["credit"]
+        closing = month_open + total_debit - total_credit
+        opening = month_open
+        txs = [t for t in txs if t.month == selected]
+    else:
+        total_debit = sum(m["debit"] for m in monthly.values())
+        total_credit = sum(m["credit"] for m in monthly.values())
+        closing = opening + total_debit - total_credit
 
     transactions = [{
         "date": t.date,
@@ -279,12 +307,12 @@ def fetch_statement(cfg: Optional[Dict[str, str]] = None, f11: Optional[str] = N
         "credit": _fmt(t.credit_amount),
     } for t in txs]
 
-    closing = opening + total_debit - total_credit
     return {
         "opening": _fmt(opening),
         "total_debit": _fmt(total_debit),
         "total_credit": _fmt(total_credit),
         "closing": _fmt(closing),
+        "selected_month": selected,
         "monthly": monthly_rows,
         "transactions": transactions,
         "count": len(txs),
