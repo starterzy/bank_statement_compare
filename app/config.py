@@ -32,5 +32,7 @@ BANK_COLUMN_MAP = {
     "currency": "币种",
 }
 
-LLM_MODEL = "claude-sonnet-5"
+# LLM 字段识别走 DeepSeek 的 Anthropic 兼容接口（https://api.deepseek.com/anthropic）。
+LLM_MODEL = "deepseek-v4-flash"
+LLM_BASE_URL = "https://api.deepseek.com/anthropic"
 MAX_MERGE_SIZE = 8

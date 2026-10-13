@@ -38,13 +38,16 @@ def _parse_json(text: str) -> Dict:
     return data
 
 
-def claude_map_bank_columns(headers: List[str], samples: List[Dict], api_key: str, model: str) -> Dict:
+def map_bank_columns(headers: List[str], samples: List[Dict], api_key: str, model: str,
+                     base_url: str = "https://api.deepseek.com/anthropic") -> Dict:
     import anthropic
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
     resp = client.messages.create(
         model=model,
         max_tokens=1500,
         messages=[{"role": "user", "content": build_prompt(headers, samples, CANONICAL_FIELDS)}],
     )
-    return _parse_json(resp.content[0].text)
+    # 兼容带 thinking 的模型：只取 text 块拼接（ThinkingBlock 没有 .text）。
+    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    return _parse_json(text)

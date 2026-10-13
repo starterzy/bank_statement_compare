@@ -6,9 +6,9 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import DB_COLUMN_MAP, LLM_MODEL
-from .db.oracle import fetch_bank_detail, fetch_statement, list_bank_accounts, list_companies, list_years
-from .llm.client import claude_map_bank_columns
+from .config import DB_COLUMN_MAP, LLM_BASE_URL, LLM_MODEL
+from .db.oracle import fetch_bank_detail, fetch_statement, list_bank_accounts, list_companies, list_years, load_env
+from .llm.client import map_bank_columns
 from .pipeline import run_compare, run_compare_with_db
 from .reporting.excel_writer import write_result_excel
 
@@ -16,9 +16,18 @@ app = FastAPI(title="银行流水对账")
 RESULTS = {}
 
 
+def _resolve_api_key(api_key: str) -> str:
+    """字段识别用的 DeepSeek key：表单 > 环境变量 > .env，任一即可。"""
+    return (api_key
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+            or load_env().get("LLM_API_KEY")
+            or "")
+
+
 def _make_bank_mapper(api_key: str, model: str):
     def mapper(headers, samples):
-        return claude_map_bank_columns(headers, samples, api_key, model)
+        return map_bank_columns(headers, samples, api_key, model, LLM_BASE_URL)
     return mapper
 
 
@@ -27,9 +36,9 @@ async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
                   api_key: str = Form(""), db_source: str = Form("database"),
                   account: str = Form(""), book: str = Form(""), accasoa: str = Form(""),
                   year: str = Form(""), month: str = Form("")):
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    key = _resolve_api_key(api_key)
     if not key:
-        return {"error": "缺少 Claude API key"}
+        return {"error": "缺少 DeepSeek API key"}
     tmp = tempfile.mkdtemp()
     bank_path = os.path.join(tmp, bank.filename or "bank.xls")
     with open(bank_path, "wb") as f:
