@@ -121,3 +121,38 @@ fieldset legend { font-size: 0.85rem; color: var(--muted); padding: 0 0.3rem; }
 @media (max-width: 640px) {
   .field select, .field input[type="text"], .field input[type="password"] { min-width: 100%; }
 }
+
+/* 思考过程 / 字段识别 / 结果摘要 */
+.thinking, .mapping {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.thinking-head, .mapping-head {
+  background: #f1f5f9;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.thinking-body {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 0.6rem 0.8rem;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: #374151;
+  background: #fafafa;
+}
+.mapping table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.mapping th, .mapping td { border: 1px solid var(--line); padding: 0.35rem 0.6rem; }
+.mapping th { background: #f8fafc; text-align: left; }
+
+#summary .sum-head { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.5rem; }
+#summary .sum-list { margin: 0.25rem 0 0.75rem; padding-left: 1.2rem; }
+#summary .sum-list li { margin: 0.15rem 0; }
+#summary .sum-list .warn { color: var(--err); }
+#summary .sum-sub { margin: 0.75rem 0 0.25rem; font-weight: 600; font-size: 0.85rem; color: var(--muted); }

@@ -12,6 +12,9 @@ const dbUploadLabel = document.getElementById("db_upload_label");
 const statusEl = document.getElementById("status");
 const summaryEl = document.getElementById("summary");
 const downloadEl = document.getElementById("download");
+const thinkingEl = document.getElementById("thinking");
+const thinkingBodyEl = document.getElementById("thinking_body");
+const mappingEl = document.getElementById("mapping");
 
 // 公司列表（含 org/book/accasoa），按 org 索引。
 let companies = [];
@@ -176,6 +179,86 @@ function toggleDbUpload() {
   dbUploadLabel.style.display = dbSource === "upload" ? "" : "none";
 }
 
+function formatSummary(s) {
+  if (!s) return "";
+  const lines = [];
+  lines.push('<div class="sum-head">' + esc(s.message || "") + "</div>");
+  lines.push('<ul class="sum-list">');
+  lines.push("<li>匹配成功 <b>" + s.matched_count + "</b> 笔；银行未匹配 <b>" +
+    (s.unmatched_bank_count || 0) + "</b> 笔；数据库未匹配 <b>" +
+    (s.unmatched_db_count || 0) + "</b> 笔；合并记账 <b>" + (s.merged_count || 0) + "</b> 组</li>");
+  if (s.swap_warning) lines.push('<li class="warn">⚠ 疑似借贷方向颠倒</li>');
+  if (s.monthly_mismatches && s.monthly_mismatches.length) {
+    const ms = s.monthly_mismatches.map((m) =>
+      m.month + "（借差 " + m.debit_diff + "，贷差 " + m.credit_diff + "）").join("、");
+    lines.push('<li class="warn">月度总额不一致：' + esc(ms) + "</li>");
+  }
+  if (s.single_sided_months && s.single_sided_months.length) {
+    lines.push("<li>单边月份：" + esc(s.single_sided_months.map((m) => m.month).join("、")) + "</li>");
+  }
+  lines.push("</ul>");
+
+  if (s.unmatched_bank && s.unmatched_bank.length) {
+    lines.push('<p class="sum-sub">银行未匹配项（前 20）：</p><ul class="sum-list">');
+    for (const t of s.unmatched_bank.slice(0, 20)) {
+      lines.push("<li>" + esc(t.date) + "  " + esc(t.amount || "") + "  " + esc(t.summary || "") + "</li>");
+    }
+    lines.push("</ul>");
+  }
+  if (s.unmatched_db && s.unmatched_db.length) {
+    lines.push('<p class="sum-sub">数据库未匹配项（前 20）：</p><ul class="sum-list">');
+    for (const t of s.unmatched_db.slice(0, 20)) {
+      lines.push("<li>" + esc(t.date) + "  " + esc(t.amount || "") + "  " + esc(t.summary || "") + "</li>");
+    }
+    lines.push("</ul>");
+  }
+  if (s.merged && s.merged.length) {
+    lines.push('<p class="sum-sub">合并记账（前 20）：</p><ul class="sum-list">');
+    for (const g of s.merged.slice(0, 20)) {
+      const parts = (g.parts || []).map((p) => p.amount + " " + (p.summary || "")).join(" + ");
+      lines.push("<li>" + esc(g.kind || "") + "：" + esc(g.target_amount || "") + " " +
+        esc(g.target_summary || "") + " = " + esc(parts) + "</li>");
+    }
+    lines.push("</ul>");
+  }
+  return lines.join("");
+}
+
+function showMapping(mapping) {
+  const rows = [];
+  for (const [field, col] of Object.entries(mapping)) {
+    if (col) rows.push("<tr><td>" + esc(field) + "</td><td>" + esc(col) + "</td></tr>");
+  }
+  mappingEl.innerHTML =
+    '<div class="mapping-head">字段识别结果</div><table><thead><tr><th>标准字段</th><th>对账单列</th></tr></thead><tbody>' +
+    rows.join("") + "</tbody></table>";
+  mappingEl.style.display = "";
+}
+
+function handleEvent(ev) {
+  if (ev.type === "stage") {
+    statusEl.textContent = "处理中 · " + ev.text;
+    statusEl.className = "status";
+  } else if (ev.type === "thinking") {
+    thinkingEl.style.display = "";
+    thinkingBodyEl.textContent += ev.text;
+    thinkingBodyEl.scrollTop = thinkingBodyEl.scrollHeight;
+  } else if (ev.type === "mapping") {
+    showMapping(ev.mapping);
+  } else if (ev.type === "done") {
+    statusEl.textContent = "完成";
+    statusEl.className = "status ok";
+    summaryEl.innerHTML = formatSummary(ev.summary);
+    if (ev.id) {
+      downloadEl.href = "/api/result/" + ev.id + "/excel";
+      downloadEl.style.display = "";
+    }
+  } else if (ev.type === "error") {
+    statusEl.textContent = "错误：" + ev.message;
+    statusEl.className = "status err";
+  }
+}
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const dbSource = form.querySelector('input[name="db_source"]:checked').value;
@@ -186,8 +269,11 @@ form.addEventListener("submit", async (e) => {
   }
   statusEl.textContent = "处理中…";
   statusEl.className = "status";
-  summaryEl.textContent = "";
+  summaryEl.innerHTML = "";
   downloadEl.style.display = "none";
+  thinkingEl.style.display = "none";
+  thinkingBodyEl.textContent = "";
+  mappingEl.style.display = "none";
 
   const fd = new FormData();
   fd.append("bank", bankInput.files[0]);
@@ -206,22 +292,29 @@ form.addEventListener("submit", async (e) => {
   }
 
   try {
-    const resp = await fetch("/api/compare", { method: "POST", body: fd });
-    const data = await resp.json();
-    if (data.error) {
-      statusEl.textContent = "错误：" + data.error;
-      statusEl.className = "status err";
-      return;
+    const resp = await fetch("/api/compare/stream", { method: "POST", body: fd });
+    const ct = resp.headers.get("content-type") || "";
+    if (!ct.includes("ndjson")) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || ("HTTP " + resp.status));
     }
-    statusEl.textContent = "完成";
-    statusEl.className = "status ok";
-    summaryEl.textContent = data.summary || "";
-    if (data.id) {
-      downloadEl.href = "/api/result/" + data.id + "/excel";
-      downloadEl.style.display = "";
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+        handleEvent(JSON.parse(line));
+      }
     }
   } catch (err) {
-    statusEl.textContent = "错误：" + err;
+    statusEl.textContent = "错误：" + err.message;
     statusEl.className = "status err";
   }
 });

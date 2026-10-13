@@ -39,15 +39,58 @@ def _parse_json(text: str) -> Dict:
 
 
 def map_bank_columns(headers: List[str], samples: List[Dict], api_key: str, model: str,
-                     base_url: str = "https://api.deepseek.com/anthropic") -> Dict:
+                     base_url: str = "https://api.deepseek.com/anthropic",
+                     max_tokens: int = 32000) -> Dict:
     import anthropic
 
     client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
-    resp = client.messages.create(
-        model=model,
-        max_tokens=1500,
-        messages=[{"role": "user", "content": build_prompt(headers, samples, CANONICAL_FIELDS)}],
-    )
+    msg = {"role": "user", "content": build_prompt(headers, samples, CANONICAL_FIELDS)}
+    resp = client.messages.create(model=model, max_tokens=max_tokens, messages=[msg])
     # 兼容带 thinking 的模型：只取 text 块拼接（ThinkingBlock 没有 .text）。
     text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    if not text.strip():
+        # 思考占满输出预算时，禁用思考重试一次，保证拿到结果。
+        resp = client.messages.create(model=model, max_tokens=4000,
+                                      thinking={"type": "disabled"}, messages=[msg])
+        text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    if not text.strip():
+        raise RuntimeError("DeepSeek 未返回字段识别结果")
     return _parse_json(text)
+
+
+async def stream_map_bank_columns(headers: List[str], samples: List[Dict], api_key: str,
+                                  model: str, base_url: str = "https://api.deepseek.com/anthropic",
+                                  max_tokens: int = 32000):
+    """流式调用字段识别：逐块产出思考/正文事件，最后产出 mapping 事件。
+
+    产出事件：{"type": "thinking", "text": ...}、{"type": "mapping", "mapping": {...}}。
+    若思考占满输出预算，自动禁用思考重试一次。
+    """
+    import anthropic
+
+    client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
+    msg = {"role": "user", "content": build_prompt(headers, samples, CANONICAL_FIELDS)}
+    text_parts: List[str] = []
+    async with client.messages.stream(model=model, max_tokens=max_tokens, messages=[msg]) as stream:
+        async for event in stream:
+            if getattr(event, "type", None) != "content_block_delta":
+                continue
+            delta = getattr(event, "delta", None)
+            d_type = getattr(delta, "type", None)
+            if d_type == "thinking_delta":
+                yield {"type": "thinking", "text": getattr(delta, "thinking", "") or ""}
+            elif d_type == "text_delta":
+                t = getattr(delta, "text", "") or ""
+                text_parts.append(t)
+    text = "".join(text_parts)
+    if text.strip():
+        yield {"type": "mapping", "mapping": _parse_json(text)}
+        return
+    # 思考占满输出预算：禁用思考直接要结果。
+    yield {"type": "thinking", "text": "\n（思考过长，已切换为直接识别）\n"}
+    resp = await client.messages.create(model=model, max_tokens=4000,
+                                        thinking={"type": "disabled"}, messages=[msg])
+    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    if not text.strip():
+        raise RuntimeError("DeepSeek 未返回字段识别结果")
+    yield {"type": "mapping", "mapping": _parse_json(text)}

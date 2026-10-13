@@ -40,3 +40,8 @@ def run_compare_with_db(bank_path: str, db_txs: List[Transaction], bank_mapper: 
     bank_raw = read_excel(bank_path)
     bank_txs = map_bank_via_llm(bank_raw, bank_mapper)
     return _run(bank_txs, db_txs)
+
+
+def run_matching(bank_txs: List[Transaction], db_txs: List[Transaction]) -> CompareResult:
+    """对已解析好的两份流水做逐笔匹配 + 月度核对 + 生成摘要（供流式接口复用）。"""
+    return _run(bank_txs, db_txs)
