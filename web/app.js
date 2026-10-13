@@ -8,7 +8,6 @@ const queryResult = document.getElementById("query_result");
 const form = document.getElementById("form");
 const bankInput = document.getElementById("bank");
 const dbInput = document.getElementById("db");
-const apiKeyInput = document.getElementById("api_key");
 const dbUploadLabel = document.getElementById("db_upload_label");
 const statusEl = document.getElementById("status");
 const summaryEl = document.getElementById("summary");
@@ -192,7 +191,6 @@ form.addEventListener("submit", async (e) => {
 
   const fd = new FormData();
   fd.append("bank", bankInput.files[0]);
-  fd.append("api_key", apiKeyInput.value);
   fd.append("db_source", dbSource);
   fd.append("year", yearSelect.value);
   fd.append("month", monthSelect.value);
