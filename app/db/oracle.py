@@ -169,6 +169,27 @@ def list_bank_accounts(cfg: Optional[Dict[str, str]] = None, org: Optional[str] 
         conn.close()
 
 
+def list_years(cfg: Optional[Dict[str, str]] = None, book: Optional[str] = None,
+               accasoa: Optional[str] = None) -> List[str]:
+    """列出某账簿+科目下 GL_DETAIL 存在数据的年份（降序），供年份下拉选择。"""
+    cfg = cfg or get_db_config()
+    book = book or cfg["DB_ACCOUNTING_BOOK"]
+    accasoa = accasoa or cfg["DB_PK_ACCASOA"]
+    conn = _connect(cfg)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT gl_detail.yearv "
+            "FROM NCCDATA.gl_detail gl_detail "
+            "WHERE gl_detail.pk_accountingbook = :book AND gl_detail.pk_accasoa = :accasoa "
+            "ORDER BY gl_detail.yearv DESC",
+            book=book, accasoa=accasoa,
+        )
+        return [r[0] for r in cur.fetchall() if r[0]]
+    finally:
+        conn.close()
+
+
 def fetch_bank_detail(cfg: Optional[Dict[str, str]] = None, year: Optional[str] = None,
                       f11: Optional[str] = None, book: Optional[str] = None,
                       accasoa: Optional[str] = None, month: Optional[str] = None) -> List[Transaction]:

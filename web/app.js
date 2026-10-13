@@ -1,6 +1,7 @@
 // 前端逻辑：公司/账户/月份选择、流水查询展示、对账表单提交。
 const companySelect = document.getElementById("company");
 const accountSelect = document.getElementById("account");
+const yearSelect = document.getElementById("year");
 const monthSelect = document.getElementById("month");
 const queryBtn = document.getElementById("query_btn");
 const queryResult = document.getElementById("query_result");
@@ -71,6 +72,29 @@ async function loadAccounts() {
   }
 }
 
+async function loadYears() {
+  yearSelect.innerHTML = "";
+  const c = selectedCompany();
+  if (!c) return;
+  try {
+    const resp = await fetch("/api/years?book=" + encodeURIComponent(c.book) +
+      "&accasoa=" + encodeURIComponent(c.accasoa));
+    const data = await resp.json();
+    if (data.error) return;
+    for (const y of data.years || []) {
+      const o = document.createElement("option");
+      o.value = y;
+      o.textContent = y + " 年";
+      yearSelect.appendChild(o);
+    }
+  } catch (e) {}
+}
+
+function onCompanyChange() {
+  loadAccounts();
+  loadYears();
+}
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"]/g, (ch) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
@@ -132,6 +156,7 @@ async function queryStatement() {
     book: c.book,
     accasoa: c.accasoa,
     f11: accountSelect.value,
+    year: yearSelect.value,
     month: monthSelect.value,
   });
   try {
@@ -169,6 +194,7 @@ form.addEventListener("submit", async (e) => {
   fd.append("bank", bankInput.files[0]);
   fd.append("api_key", apiKeyInput.value);
   fd.append("db_source", dbSource);
+  fd.append("year", yearSelect.value);
   fd.append("month", monthSelect.value);
   if (dbSource === "upload") {
     fd.append("db", dbInput.files[0]);
@@ -202,7 +228,7 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-companySelect.addEventListener("change", loadAccounts);
+companySelect.addEventListener("change", onCompanyChange);
 queryBtn.addEventListener("click", queryStatement);
 form.querySelectorAll('input[name="db_source"]').forEach((r) =>
   r.addEventListener("change", toggleDbUpload));
