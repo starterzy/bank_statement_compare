@@ -42,7 +42,7 @@ def _make_bank_mapper(api_key: str, model: str):
 async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
                   api_key: str = Form(""), db_source: str = Form("database"),
                   account: str = Form(""), book: str = Form(""), accasoa: str = Form(""),
-                  year: str = Form(""), month: str = Form("")):
+                  year: str = Form(""), month: str = Form(""), month_to: str = Form("")):
     key = _resolve_api_key(api_key)
     if not key:
         return {"error": "缺少 DeepSeek API key"}
@@ -55,7 +55,7 @@ async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
         if db_source == "database":
             db_txs = fetch_bank_detail(f11=account or None, book=book or None,
                                        accasoa=accasoa or None, year=year or None,
-                                       month=month or None)
+                                       month=month or None, month_to=month_to or None)
             result = run_compare_with_db(bank_path, db_txs, _make_bank_mapper(key, LLM_MODEL))
         else:
             if db is None or db.filename is None:
@@ -76,7 +76,7 @@ async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
 async def compare_stream(bank: UploadFile = File(...), db: UploadFile = File(None),
                          db_source: str = Form("database"), account: str = Form(""),
                          book: str = Form(""), accasoa: str = Form(""),
-                         year: str = Form(""), month: str = Form("")):
+                         year: str = Form(""), month: str = Form(""), month_to: str = Form("")):
     """流式对比：NDJSON 逐条推送 stage / thinking / mapping / done / error 事件。"""
     key = _resolve_api_key("")
     if not key:
@@ -107,7 +107,7 @@ async def compare_stream(bank: UploadFile = File(...), db: UploadFile = File(Non
                 yield _ndjson({"type": "stage", "text": "查询数据库银行流水…"})
                 db_txs = fetch_bank_detail(f11=account or None, book=book or None,
                                            accasoa=accasoa or None, year=year or None,
-                                           month=month or None)
+                                           month=month or None, month_to=month_to or None)
             else:
                 db_txs = None
 
@@ -173,10 +173,11 @@ async def years(book: str = "", accasoa: str = ""):
 
 
 @app.get("/api/statement")
-async def statement(f11: str = "", book: str = "", accasoa: str = "", year: str = "", month: str = ""):
+async def statement(f11: str = "", book: str = "", accasoa: str = "", year: str = "",
+                    month: str = "", month_to: str = ""):
     try:
         return fetch_statement(f11=f11 or None, book=book or None, accasoa=accasoa or None,
-                               year=year or None, month=month or None)
+                               year=year or None, month=month or None, month_to=month_to or None)
     except Exception as e:
         return {"error": f"数据库读取失败: {e}"}
 

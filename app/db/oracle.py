@@ -192,12 +192,14 @@ def list_years(cfg: Optional[Dict[str, str]] = None, book: Optional[str] = None,
 
 def fetch_bank_detail(cfg: Optional[Dict[str, str]] = None, year: Optional[str] = None,
                       f11: Optional[str] = None, book: Optional[str] = None,
-                      accasoa: Optional[str] = None, month: Optional[str] = None) -> List[Transaction]:
+                      accasoa: Optional[str] = None, month: Optional[str] = None,
+                      month_to: Optional[str] = None) -> List[Transaction]:
     """连库查询银行流水，返回 Transaction 列表。
 
     f11 为空（None/""）→ 查该科目+账簿下「全部银行账户」的流水（对照所有）；
     f11 给出 → 只查该账户（F11 = bd_bankaccsub.pk_bankaccsub）。
-    month 给出（"01".."12"）→ 只查该月；为空 → 查 DB_PERIOD_FROM..DB_PERIOD_TO。
+    month 给出（"01".."12"）→ 只查该月；为空 → 查 DB_PERIOD_FROM..截止月，
+    其中截止月 = month_to（未给则用 DB_PERIOD_TO）。
     """
     cfg = cfg or get_db_config()
     year = year or cfg["DB_YEAR"]
@@ -227,7 +229,7 @@ def fetch_bank_detail(cfg: Optional[Dict[str, str]] = None, year: Optional[str] 
             params["month"] = month
         else:
             params["pfrom"] = cfg["DB_PERIOD_FROM"]
-            params["pto"] = cfg["DB_PERIOD_TO"]
+            params["pto"] = month_to or cfg["DB_PERIOD_TO"]
         if f11:
             params["f11"] = f11
         cur.execute(_QUERY_SQL.format(cols=cols, fcond=fcond, pcond=pcond), params)
@@ -267,19 +269,21 @@ def _fmt(v: Decimal) -> str:
 
 def fetch_statement(cfg: Optional[Dict[str, str]] = None, f11: Optional[str] = None,
                     book: Optional[str] = None, accasoa: Optional[str] = None,
-                    year: Optional[str] = None, month: Optional[str] = None) -> Dict:
+                    year: Optional[str] = None, month: Optional[str] = None,
+                    month_to: Optional[str] = None) -> Dict:
     """一次取全「期初/期末 + 月度发生额 + 每笔流水」，供查询页展示。
 
     month 为空 → 全年口径（期初=年初，期末=年末，发生额=全年合计，流水=全部）；
+    month_to 给出时限定到该月（例如 08 → 只取 1-8 月）；
     month 给出（"01".."12"）→ 该月口径：期初=年初+之前各月净额，发生额/流水只含该月，
-    期末=期初+该月净额；monthly 仍返回全年各月（供前端高亮选中月）。
+    期末=期初+该月净额；monthly 仍返回各月（供前端高亮选中月）。
     """
     cfg = cfg or get_db_config()
     year = year or cfg["DB_YEAR"]
     book = book or cfg["DB_ACCOUNTING_BOOK"]
     accasoa = accasoa or cfg["DB_PK_ACCASOA"]
 
-    txs = fetch_bank_detail(cfg, year=year, f11=f11, book=book, accasoa=accasoa)
+    txs = fetch_bank_detail(cfg, year=year, f11=f11, book=book, accasoa=accasoa, month_to=month_to)
     opening = fetch_opening_balance(cfg, year=year, f11=f11, book=book, accasoa=accasoa)
 
     monthly: "OrderedDict[str, Dict]" = OrderedDict()

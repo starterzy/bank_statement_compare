@@ -3,6 +3,7 @@ const companySelect = document.getElementById("company");
 const accountSelect = document.getElementById("account");
 const yearSelect = document.getElementById("year");
 const monthSelect = document.getElementById("month");
+const monthToSelect = document.getElementById("month_to");
 const queryBtn = document.getElementById("query_btn");
 const queryResult = document.getElementById("query_result");
 const form = document.getElementById("form");
@@ -160,6 +161,7 @@ async function queryStatement() {
     f11: accountSelect.value,
     year: yearSelect.value,
     month: monthSelect.value,
+    month_to: monthToSelect.value,
   });
   try {
     const resp = await fetch("/api/statement?" + params.toString());
@@ -280,6 +282,7 @@ form.addEventListener("submit", async (e) => {
   fd.append("db_source", dbSource);
   fd.append("year", yearSelect.value);
   fd.append("month", monthSelect.value);
+  fd.append("month_to", monthToSelect.value);
   if (dbSource === "upload") {
     fd.append("db", dbInput.files[0]);
   } else {

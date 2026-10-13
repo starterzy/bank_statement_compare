@@ -19,6 +19,7 @@ def test_run_compare_on_fixtures():
     assert len(r.db_txs) == 117
     # 8 个月都在
     assert len(r.monthly_diffs) == 8
-    # 样例借贷口径相反 → 诊断出对称错位
-    assert all(d.swap_suspected for d in r.monthly_diffs)
-    assert r.summary["status"] == "monthly_mismatch"
+    # 方向对齐后各月一致，无对称错位
+    assert all(d.consistent for d in r.monthly_diffs)
+    assert not any(d.swap_suspected for d in r.monthly_diffs)
+    assert r.summary["status"] == "merged"

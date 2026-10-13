@@ -23,10 +23,10 @@ def test_build_bank_transactions():
     raw = read_excel(os.path.join(FIXTURES, "bank.xls"))
     txs = build_transactions(raw, BANK_COLUMN_MAP, "bank")
     assert len(txs) == 118
-    # 一笔电费 12.83 在借方
-    t = next(x for x in txs if x.debit_amount == Decimal("12.83"))
+    # 一笔电费 12.83 在贷方（银行对账单方向已对齐到账簿口径：贷=付）
+    t = next(x for x in txs if x.credit_amount == Decimal("12.83"))
     assert t.counterparty == "国网浙江省电力有限公司"
-    assert t.direction == "debit"
+    assert t.direction == "credit"
     assert t.month == "2026-01"
 
 

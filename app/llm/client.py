@@ -17,7 +17,9 @@ def build_prompt(headers: List[str], samples: List[Dict], fields: List[str]) -> 
         "样例行：" + json.dumps(samples[:5], ensure_ascii=False, default=str),
         "",
         "JSON 的键为标准字段名，值为对应的银行列名（找不到则为 null）。",
-        "借贷按财务含义识别：哪列是「借方金额」、哪列是「贷方金额」。",
+        "注意借贷方向：企业账簿为资产口径，借=收(钱进来)、贷=付(钱出去)。",
+        "银行对账单列名上的「借/贷」通常相反——「借方」是支取(钱出去)、「贷方」是收入(钱进来)。",
+        "请按金额的实际收付含义映射：把「收入/进账」列映射到 debit，把「支取/支出」列映射到 credit。",
     ]
     return "\n".join(lines)
 
@@ -38,6 +40,27 @@ def _parse_json(text: str) -> Dict:
     return data
 
 
+def _collect_stream_text(client, msg: Dict, model: str, max_tokens: int,
+                         thinking: "dict | None" = None) -> str:
+    """同步流式收集正文文本（兼容 thinking 模型），返回拼接后的 text。
+
+    用流式而非 messages.create，是因为 max_tokens 较大时非流式会被 SDK 拒绝
+    （要求流式处理可能超过 10 分钟的请求）。
+    """
+    kwargs = {"model": model, "max_tokens": max_tokens, "messages": [msg]}
+    if thinking is not None:
+        kwargs["thinking"] = thinking
+    text_parts: List[str] = []
+    with client.messages.stream(**kwargs) as stream:
+        for event in stream:
+            if getattr(event, "type", None) != "content_block_delta":
+                continue
+            delta = getattr(event, "delta", None)
+            if getattr(delta, "type", None) == "text_delta":
+                text_parts.append(getattr(delta, "text", "") or "")
+    return "".join(text_parts)
+
+
 def map_bank_columns(headers: List[str], samples: List[Dict], api_key: str, model: str,
                      base_url: str = "https://api.deepseek.com/anthropic",
                      max_tokens: int = 32000) -> Dict:
@@ -45,14 +68,10 @@ def map_bank_columns(headers: List[str], samples: List[Dict], api_key: str, mode
 
     client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
     msg = {"role": "user", "content": build_prompt(headers, samples, CANONICAL_FIELDS)}
-    resp = client.messages.create(model=model, max_tokens=max_tokens, messages=[msg])
-    # 兼容带 thinking 的模型：只取 text 块拼接（ThinkingBlock 没有 .text）。
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    text = _collect_stream_text(client, msg, model, max_tokens)
     if not text.strip():
         # 思考占满输出预算时，禁用思考重试一次，保证拿到结果。
-        resp = client.messages.create(model=model, max_tokens=4000,
-                                      thinking={"type": "disabled"}, messages=[msg])
-        text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+        text = _collect_stream_text(client, msg, model, 4000, {"type": "disabled"})
     if not text.strip():
         raise RuntimeError("DeepSeek 未返回字段识别结果")
     return _parse_json(text)
