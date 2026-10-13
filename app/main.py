@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import DB_COLUMN_MAP, LLM_MODEL
-from .db.oracle import fetch_bank_detail, list_bank_accounts
+from .db.oracle import fetch_bank_detail, fetch_statement, list_bank_accounts, list_companies
 from .llm.client import claude_map_bank_columns
 from .pipeline import run_compare, run_compare_with_db
 from .reporting.excel_writer import write_result_excel
@@ -25,7 +25,7 @@ def _make_bank_mapper(api_key: str, model: str):
 @app.post("/api/compare")
 async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
                   api_key: str = Form(""), db_source: str = Form("database"),
-                  account: str = Form("")):
+                  account: str = Form(""), book: str = Form(""), accasoa: str = Form("")):
     key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         return {"error": "缺少 Claude API key"}
@@ -36,7 +36,7 @@ async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
 
     if db_source == "database":
         try:
-            db_txs = fetch_bank_detail(f11=account or None)
+            db_txs = fetch_bank_detail(f11=account or None, book=book or None, accasoa=accasoa or None)
         except Exception as e:
             return {"error": f"数据库读取失败: {e}"}
         result = run_compare_with_db(bank_path, db_txs, _make_bank_mapper(key, LLM_MODEL))
@@ -53,10 +53,26 @@ async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
     return {"id": rid, "summary": result.summary, "matched_count": len(result.match_result.matched)}
 
 
-@app.get("/api/bank_accounts")
-async def bank_accounts():
+@app.get("/api/companies")
+async def companies():
     try:
-        return {"accounts": list_bank_accounts()}
+        return {"companies": list_companies()}
+    except Exception as e:
+        return {"error": f"数据库读取失败: {e}"}
+
+
+@app.get("/api/bank_accounts")
+async def bank_accounts(org: str = ""):
+    try:
+        return {"accounts": list_bank_accounts(org=org or None)}
+    except Exception as e:
+        return {"error": f"数据库读取失败: {e}"}
+
+
+@app.get("/api/statement")
+async def statement(f11: str = "", book: str = "", accasoa: str = "", year: str = ""):
+    try:
+        return fetch_statement(f11=f11 or None, book=book or None, accasoa=accasoa or None, year=year or None)
     except Exception as e:
         return {"error": f"数据库读取失败: {e}"}
 

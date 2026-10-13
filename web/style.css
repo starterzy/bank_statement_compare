@@ -3,3 +3,8 @@ form { display: flex; flex-direction: column; gap: 0.8rem; max-width: 420px; }
 label { display: flex; flex-direction: column; gap: 0.2rem; }
 button { padding: 0.5rem 1rem; cursor: pointer; }
 #summary { white-space: pre-wrap; background: #f6f6f6; padding: 1rem; margin-top: 1rem; }
+#query_result table { border-collapse: collapse; margin: 0.5rem 0 1rem; width: 100%; }
+#query_result th, #query_result td { border: 1px solid #ccc; padding: 0.3rem 0.5rem; font-size: 0.9rem; }
+#query_result th { background: #f0f0f0; }
+#query_result td.num { text-align: right; font-variant-numeric: tabular-nums; }
+#query_result h3 { margin: 1rem 0 0.3rem; }

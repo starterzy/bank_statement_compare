@@ -7,18 +7,24 @@
 </head>
 <body>
   <h1>银行流水对账</h1>
+
+  <fieldset>
+    <legend>数据库流水查询</legend>
+    <label>公司 <select id="company"></select></label>
+    <label>银行账户 <select id="account"></select></label>
+    <button type="button" id="query_btn">查询流水</button>
+    <div id="query_result"></div>
+  </fieldset>
+
+  <hr>
+
   <form id="form">
     <label>银行对账单 <input type="file" id="bank" accept=".xls,.xlsx" required></label>
     <fieldset id="db_source_group">
       <legend>数据库流水来源</legend>
-      <label><input type="radio" name="db_source" value="database" checked> 直连数据库（自动查询）</label>
+      <label><input type="radio" name="db_source" value="database" checked> 直连数据库（用上方所选公司/账户）</label>
       <label><input type="radio" name="db_source" value="upload"> 上传文件</label>
     </fieldset>
-    <label id="account_label">数据库账户
-      <select id="account">
-        <option value="" selected>不选择 · 对照所有账户</option>
-      </select>
-    </label>
     <label id="db_upload_label" style="display:none">数据库流水 <input type="file" id="db" accept=".xls,.xlsx,.csv"></label>
     <label>Claude API Key <input type="password" id="api_key"></label>
     <button type="submit">开始对比</button>
