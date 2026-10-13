@@ -6,3 +6,4 @@ pandas
 anthropic
 python-multipart
 pytest
+oracledb

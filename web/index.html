@@ -9,7 +9,17 @@
   <h1>银行流水对账</h1>
   <form id="form">
     <label>银行对账单 <input type="file" id="bank" accept=".xls,.xlsx" required></label>
-    <label>数据库流水 <input type="file" id="db" accept=".xls,.xlsx,.csv" required></label>
+    <fieldset id="db_source_group">
+      <legend>数据库流水来源</legend>
+      <label><input type="radio" name="db_source" value="database" checked> 直连数据库（自动查询）</label>
+      <label><input type="radio" name="db_source" value="upload"> 上传文件</label>
+    </fieldset>
+    <label id="account_label">数据库账户
+      <select id="account">
+        <option value="" selected>不选择 · 对照所有账户</option>
+      </select>
+    </label>
+    <label id="db_upload_label" style="display:none">数据库流水 <input type="file" id="db" accept=".xls,.xlsx,.csv"></label>
     <label>Claude API Key <input type="password" id="api_key"></label>
     <button type="submit">开始对比</button>
   </form>

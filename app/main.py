@@ -7,8 +7,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import DB_COLUMN_MAP, LLM_MODEL
+from .db.oracle import fetch_bank_detail, list_bank_accounts
 from .llm.client import claude_map_bank_columns
-from .pipeline import run_compare
+from .pipeline import run_compare, run_compare_with_db
 from .reporting.excel_writer import write_result_excel
 
 app = FastAPI(title="银行流水对账")
@@ -22,21 +23,42 @@ def _make_bank_mapper(api_key: str, model: str):
 
 
 @app.post("/api/compare")
-async def compare(bank: UploadFile = File(...), db: UploadFile = File(...), api_key: str = Form("")):
+async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
+                  api_key: str = Form(""), db_source: str = Form("database"),
+                  account: str = Form("")):
     key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         return {"error": "缺少 Claude API key"}
     tmp = tempfile.mkdtemp()
-    bank_path = os.path.join(tmp, bank.filename)
-    db_path = os.path.join(tmp, db.filename)
+    bank_path = os.path.join(tmp, bank.filename or "bank.xls")
     with open(bank_path, "wb") as f:
         f.write(await bank.read())
-    with open(db_path, "wb") as f:
-        f.write(await db.read())
-    result = run_compare(bank_path, db_path, _make_bank_mapper(key, LLM_MODEL), DB_COLUMN_MAP)
+
+    if db_source == "database":
+        try:
+            db_txs = fetch_bank_detail(f11=account or None)
+        except Exception as e:
+            return {"error": f"数据库读取失败: {e}"}
+        result = run_compare_with_db(bank_path, db_txs, _make_bank_mapper(key, LLM_MODEL))
+    else:
+        if db is None or db.filename is None:
+            return {"error": "缺少数据库流水文件"}
+        db_path = os.path.join(tmp, db.filename)
+        with open(db_path, "wb") as f:
+            f.write(await db.read())
+        result = run_compare(bank_path, db_path, _make_bank_mapper(key, LLM_MODEL), DB_COLUMN_MAP)
+
     rid = uuid.uuid4().hex
     RESULTS[rid] = result
     return {"id": rid, "summary": result.summary, "matched_count": len(result.match_result.matched)}
+
+
+@app.get("/api/bank_accounts")
+async def bank_accounts():
+    try:
+        return {"accounts": list_bank_accounts()}
+    except Exception as e:
+        return {"error": f"数据库读取失败: {e}"}
 
 
 @app.get("/api/result/{rid}/excel")
