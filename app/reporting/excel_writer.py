@@ -49,10 +49,17 @@ def write_result_excel(match_result: MatchResult, monthly_diffs: List[MonthlyDif
                    t.date, t.summary, t.voucher_no, t.detail_index])
 
     ws2 = wb.create_sheet("月度汇总")
-    ws2.append(["月份", "银行借方", "数据库借方", "借方差额", "银行贷方", "数据库贷方", "贷方差额", "是否一致"])
+    ws2.append(["月份", "银行借方", "数据库借方", "借方差额", "银行贷方", "数据库贷方", "贷方差额",
+                "银行期初", "数据库期初", "期初差额", "银行期末", "数据库期末", "期末差额", "是否一致"])
     for d in monthly_diffs:
         ws2.append([d.month, _amt(d.bank_debit), _amt(d.db_debit), _amt(d.debit_diff),
                     _amt(d.bank_credit), _amt(d.db_credit), _amt(d.credit_diff),
+                    _amt(d.bank_opening) if d.bank_opening is not None else "",
+                    _amt(d.db_opening) if d.db_opening is not None else "",
+                    _amt(d.opening_diff) if d.opening_diff is not None else "",
+                    _amt(d.bank_closing) if d.bank_closing is not None else "",
+                    _amt(d.db_closing) if d.db_closing is not None else "",
+                    _amt(d.closing_diff) if d.closing_diff is not None else "",
                     "一致" if d.consistent else "不一致"])
 
     wb.save(out_path)

@@ -11,11 +11,12 @@ Oracle 11g 需 thick 模式 + Instant Client（本机已装，路径见 .env）�
 - 期初余额在 GL_BALANCE（adjustperiod='00'），各月发生额在 adjustperiod='01'..'12'。
 """
 import os
+import re
 from collections import OrderedDict
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from ..config import DB_COLUMN_MAP
+from ..config import DB_COLUMN_MAP, GROUP_COMPANY_ROOT, GROUP_ORG
 from ..models import Transaction
 from ..parsing.column_mapper import build_transactions
 from ..parsing.excel_reader import RawTable
@@ -126,27 +127,91 @@ def _connect(cfg: Dict[str, str]):
     return oracledb.connect(user=cfg["ORACLE_USER"], password=cfg["ORACLE_PASSWORD"], dsn=dsn)
 
 
-def list_companies(cfg: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
+def list_companies(cfg: Optional[Dict[str, str]] = None,
+                   org_roots: Optional[List[str]] = None) -> List[Dict[str, str]]:
     """列出有启用银行账户的公司，返回 [{"org": pk_org, "name": 公司名, "book": 账簿, "accasoa": 银行存款·人民币科目}]。
 
+    只展示「浙农控股」集团根（GROUP_ORG）下的公司（没有银行账号的不展示）。
+
+    org_roots 用于按用户可见范围过滤：
+    - None → 不过滤（全部，管理员用）；
+    - [] → 无可见公司（返回空）；
+    - 非空 → 只保留这些子树根（含其自身）之下的公司。
+
     公司 ↔ 账簿用 org_accountingbook.PK_RELORG 关联（PK_ORG 存的是集团）。
+    """
+    if org_roots is not None and not org_roots:
+        return []
+    cfg = cfg or get_db_config()
+    conn = _connect(cfg)
+    try:
+        cur = conn.cursor()
+        sql = (
+            "SELECT o.pk_org, o.name, b.pk_accountingbook, a.pk_accasoa "
+            "FROM NCCDATA.org_orgs o "
+            "JOIN NCCDATA.org_accountingbook b ON b.pk_relorg = o.pk_org "
+            "JOIN NCCDATA.bd_accasoa a ON a.pk_accchart = b.pk_curraccchart "
+            "  AND a.dispname LIKE '1002%' AND a.name = '人民币' "
+            "WHERE o.dr = 0 "
+            "AND o.pk_group = :org_group "
+            "AND o.pk_org IN (SELECT DISTINCT pk_org FROM NCCDATA.bd_bankaccbas WHERE enablestate IN (1, 2)) "
+        )
+        params: Dict[str, str] = {"org_group": GROUP_ORG}
+        if org_roots:
+            binds = {f"r{i}": r for i, r in enumerate(org_roots)}
+            inlist = ", ".join(f":r{i}" for i in range(len(org_roots)))
+            sql += ("AND o.pk_org IN (SELECT pk_org FROM NCCDATA.org_orgs "
+                    f"START WITH pk_org IN ({inlist}) CONNECT BY NOCYCLE PRIOR pk_org = pk_fatherorg) ")
+            params.update(binds)
+        sql += "ORDER BY o.code"
+        cur.execute(sql, params)
+        return [{"org": r[0], "name": r[1], "book": r[2], "accasoa": r[3]} for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def fetch_org_tree(cfg: Optional[Dict[str, str]] = None) -> dict:
+    """返回浙农控股集团下的组织树（嵌套），供用户管理界面勾选可见公司子树。
+
+    每个节点：{pk_org, code, name, is_company（有启用银行账号）, children[]}。
+    只保留「有银行账号的公司 + 其控股中间节点」，部门/虚拟组织等无公司子树的节点被剪掉。
     """
     cfg = cfg or get_db_config()
     conn = _connect(cfg)
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT o.pk_org, o.name, b.pk_accountingbook, a.pk_accasoa "
+            "SELECT o.pk_org, o.code, o.name, o.pk_fatherorg, "
+            "  CASE WHEN o.pk_org IN (SELECT DISTINCT pk_org FROM NCCDATA.bd_bankaccbas "
+            "                            WHERE enablestate IN (1, 2)) THEN 1 ELSE 0 END "
             "FROM NCCDATA.org_orgs o "
-            "JOIN NCCDATA.org_accountingbook b ON b.pk_relorg = o.pk_org "
-            "JOIN NCCDATA.bd_accasoa a ON a.pk_accchart = b.pk_curraccchart "
-            "  AND a.dispname LIKE '1002%' AND a.name = '人民币' "
-            "WHERE o.pk_org IN (SELECT DISTINCT pk_org FROM NCCDATA.bd_bankaccbas WHERE enablestate IN (1, 2)) "
-            "ORDER BY o.code"
+            "WHERE o.dr = 0 AND o.pk_group = :org_group",
+            org_group=GROUP_ORG,
         )
-        return [{"org": r[0], "name": r[1], "book": r[2], "accasoa": r[3]} for r in cur.fetchall()]
+        nodes = {r[0]: {"pk_org": r[0], "code": r[1], "name": r[2],
+                        "father": r[3], "is_company": bool(r[4])} for r in cur.fetchall()}
     finally:
         conn.close()
+
+    children: Dict[str, List[str]] = {}
+    for pk, n in nodes.items():
+        children.setdefault(n["father"], []).append(pk)
+
+    def build(pk: str) -> Optional[dict]:
+        n = nodes.get(pk)
+        if n is None:
+            return None
+        kids = [k for k in (build(c) for c in children.get(pk, [])) if k is not None]
+        if not n["is_company"] and not kids:
+            return None  # 无公司子树的中间节点剪掉
+        return {"pk_org": n["pk_org"], "code": n["code"], "name": n["name"],
+                "is_company": n["is_company"], "children": kids}
+
+    root = build(GROUP_COMPANY_ROOT)
+    if root is None:
+        root = {"pk_org": GROUP_COMPANY_ROOT, "code": "", "name": "浙农控股集团有限公司",
+                "is_company": False, "children": []}
+    return root
 
 
 def list_bank_accounts(cfg: Optional[Dict[str, str]] = None, org: Optional[str] = None) -> List[Dict[str, str]]:
@@ -165,6 +230,52 @@ def list_bank_accounts(cfg: Optional[Dict[str, str]] = None, org: Optional[str] 
             org=org,
         )
         return [{"f11": r[0], "code": r[1], "name": r[2]} for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def find_accounts_by_code(code: str, cfg: Optional[Dict[str, str]] = None,
+                          org_roots: Optional[List[str]] = None) -> List[Dict[str, str]]:
+    """按银行账号（bd_bankaccbas.code）反查账户，返回候选列表。
+
+    每个候选：{"code": 账号, "name": 账户名, "org": pk_org, "org_name": 公司名,
+              "org_code": 公司编码, "f11": pk_bankaccsub, "book": 账簿, "accasoa": 科目}。
+    账号先规范化成纯数字再精确匹配（对账单可能含空格/横线）；只在启用账户里搜。
+    org_roots 用于按用户可见范围过滤：None=不过滤，[]=空，非空=只保留这些子树下的公司。
+    同一账号可能命中多个公司（或一账号多子户），返回全部候选由调用方决定选哪个。
+    """
+    if org_roots is not None and not org_roots:
+        return []
+    norm = re.sub(r"\D", "", code or "")
+    if not norm:
+        return []
+    cfg = cfg or get_db_config()
+    conn = _connect(cfg)
+    try:
+        cur = conn.cursor()
+        sql = (
+            "SELECT b.code, b.name, b.pk_org, o.name, o.code, s.pk_bankaccsub, "
+            "       bk.pk_accountingbook, a.pk_accasoa "
+            "FROM NCCDATA.bd_bankaccbas b "
+            "JOIN NCCDATA.bd_bankaccsub s ON b.pk_bankaccbas = s.pk_bankaccbas "
+            "JOIN NCCDATA.org_orgs o ON o.pk_org = b.pk_org AND o.dr = 0 "
+            "JOIN NCCDATA.org_accountingbook bk ON bk.pk_relorg = o.pk_org "
+            "JOIN NCCDATA.bd_accasoa a ON a.pk_accchart = bk.pk_curraccchart "
+            "  AND a.dispname LIKE '1002%' AND a.name = '人民币' "
+            "WHERE b.enablestate IN (1, 2) "
+            "AND o.pk_group = :org_group "
+            "AND REGEXP_REPLACE(b.code, '[^0-9]', '') = :norm "
+        )
+        params: Dict[str, str] = {"org_group": GROUP_ORG, "norm": norm}
+        if org_roots:
+            binds = {f"r{i}": r for i, r in enumerate(org_roots)}
+            inlist = ", ".join(f":r{i}" for i in range(len(org_roots)))
+            sql += ("AND o.pk_org IN (SELECT pk_org FROM NCCDATA.org_orgs "
+                    f"START WITH pk_org IN ({inlist}) CONNECT BY NOCYCLE PRIOR pk_org = pk_fatherorg) ")
+            params.update(binds)
+        cur.execute(sql, params)
+        return [{"code": r[0], "name": r[1], "org": r[2], "org_name": r[3], "org_code": r[4],
+                 "f11": r[5], "book": r[6], "accasoa": r[7]} for r in cur.fetchall()]
     finally:
         conn.close()
 
@@ -296,9 +407,11 @@ def fetch_statement(cfg: Optional[Dict[str, str]] = None, f11: Optional[str] = N
     running = opening
     monthly_rows = []
     for mo, m in monthly.items():
+        month_open = running
         running += m["debit"] - m["credit"]
         monthly_rows.append({
             "month": mo,
+            "opening": _fmt(month_open),
             "debit": _fmt(m["debit"]),
             "credit": _fmt(m["credit"]),
             "count": m["count"],

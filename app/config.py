@@ -34,7 +34,41 @@ BANK_COLUMN_MAP = {
     "currency": "币种",
 }
 
-# LLM 字段识别走 DeepSeek 的 Anthropic 兼容接口（https://api.deepseek.com/anthropic）。
-LLM_MODEL = "deepseek-flash"
-LLM_BASE_URL = "https://api.deepseek.com/anthropic"
+# 可选 LLM 模型（前端下拉 + 后端解析）。
+# protocol: "anthropic" 走 Anthropic 兼容接口（anthropic SDK）；
+#           "openai"    走 OpenAI 兼容接口（openai SDK，如阿里云百炼 /compatible-mode/v1）；
+#           "dashscope" 走阿里云百炼原生接口（/api/v1，multimodal-generation）。
+# api_key_env: 该模型 API key 在 .env / 环境变量里的键名。
+LLM_MODELS = [
+    {
+        "id": "deepseek-flash",
+        "label": "DeepSeek Flash",
+        "model": "deepseek-flash",
+        "base_url": "https://api.deepseek.com/anthropic",
+        "protocol": "anthropic",
+        "api_key_env": "LLM_API_KEY",
+    },
+    {
+        "id": "qwen3.8-max",
+        "label": "通义千问 Qwen3.8-Max",
+        "model": "qwen3.8-max",
+        "base_url": "https://llm-r46dokrmgm96dlfe.cn-beijing.maas.aliyuncs.com/api/v1",
+        "protocol": "dashscope",
+        "api_key_env": "QWEN_API_KEY",
+    },
+]
+DEFAULT_MODEL_ID = "deepseek-flash"
 MAX_MERGE_SIZE = 8
+
+
+def get_model(model_id: str) -> dict:
+    """按 id 取模型配置；未知 id 回退到默认模型。"""
+    for m in LLM_MODELS:
+        if m["id"] == model_id:
+            return m
+    return LLM_MODELS[0]
+
+# 组织树与可见公司范围：只展示「浙农控股」这一集团根下的公司。
+# 集团根 pk_group = GROUP_ORG；组织树的顶层公司节点是「浙农控股集团有限公司」（code 10）。
+GROUP_ORG = "0001A1100000000008TT"          # 浙农控股（ZNKG）集团根
+GROUP_COMPANY_ROOT = "0001A110000000001HBQ"  # 浙农控股集团有限公司（组织树根）

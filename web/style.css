@@ -156,3 +156,59 @@ fieldset legend { font-size: 0.85rem; color: var(--muted); padding: 0 0.3rem; }
 #summary .sum-list li { margin: 0.15rem 0; }
 #summary .sum-list .warn { color: var(--err); }
 #summary .sum-sub { margin: 0.75rem 0 0.25rem; font-weight: 600; font-size: 0.85rem; color: var(--muted); }
+
+/* 登录 */
+.login-card { max-width: 380px; margin: 0 auto; }
+.userbar { margin-top: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.75rem; font-size: 0.9rem; }
+.muted { color: var(--muted); font-size: 0.8rem; }
+
+/* 用户管理 */
+#user_table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-top: 0.5rem; }
+#user_table th, #user_table td { border: 1px solid var(--line); padding: 0.4rem 0.55rem; }
+#user_table th { background: #f1f5f9; text-align: left; font-weight: 600; }
+#user_table .btn { padding: 0.25rem 0.7rem; font-size: 0.8rem; }
+#user_form h3 { margin: 1rem 0 0.5rem; font-size: 0.95rem; }
+.org-tree { max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.7rem; background: #fafafa; }
+.tree-node { padding: 0.08rem 0; }
+.tree-node label { margin-right: 0; }
+.tree-row { display: flex; align-items: center; }
+.tree-toggle {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.tree-toggle:hover { color: var(--ink); }
+.tree-toggle.empty { cursor: default; }
+
+/* 逐笔匹配明细 */
+#detail { margin-top: 1rem; }
+#detail h3 { margin: 1rem 0 0.5rem; font-size: 0.95rem; }
+#detail table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+#detail th, #detail td { border: 1px solid var(--line); padding: 0.35rem 0.5rem; }
+#detail th { background: #f1f5f9; text-align: left; font-weight: 600; white-space: nowrap; }
+#detail td.num { text-align: right; font-variant-numeric: tabular-nums; }
+#detail tbody tr:nth-child(even) { background: #fafafa; }
+
+/* 逐笔匹配状态：不同情况用颜色标注 */
+#detail .tag {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+#detail .tag.st-matched { background: #dcfce7; color: #15803d; }
+#detail .tag.st-merged { background: #fef3c7; color: #b45309; }
+#detail .tag.st-split { background: #f1f5f9; color: #64748b; }
+#detail .tag.st-bank-only { background: #fee2e2; color: #b91c1c; }
+#detail .tag.st-db-only { background: #dbeafe; color: #1d4ed8; }
+
+#detail tbody tr.st-merged { background: #fffbeb; }
+#detail tbody tr.st-split { background: #fbfbfc; }
+#detail tbody tr.st-bank-only { background: #fef7f7; }
+#detail tbody tr.st-db-only { background: #f6f9ff; }

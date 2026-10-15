@@ -11,6 +11,13 @@ def _tx(source, month, direction, amount):
                        debit_amount=debit, credit_amount=credit)
 
 
+def _txb(source, month, direction, amount, balance=None, day="01"):
+    debit = Decimal(amount) if direction == "debit" else Decimal("0")
+    credit = Decimal(amount) if direction == "credit" else Decimal("0")
+    return Transaction(source=source, date=f"{month}-{day}", month=month,
+                       debit_amount=debit, credit_amount=credit, balance=balance)
+
+
 def test_monthly_totals():
     txs = [_tx("bank", "2026-01", "debit", "6.14"),
            _tx("bank", "2026-01", "debit", "5.02"),
@@ -47,3 +54,52 @@ def test_compare_monthly_single_sided_not_consistent_flag():
     assert diffs["2026-01"].consistent is True
     assert diffs["2026-02"].single_sided is True
     assert diffs["2026-02"].consistent is False  # arithmetic diff nonzero, but flagged single_sided
+
+
+def test_compare_monthly_balances_from_authoritative_db():
+    # 银行侧：期初 1000 + 收 100 = 期末 1100；DB 权威月余额表一致。
+    bank = [_txb("bank", "2026-01", "debit", "100", balance=Decimal("1100"))]
+    db = [_txb("db", "2026-01", "debit", "100")]
+    db_monthly = {"2026-01": {"opening": Decimal("1000"), "closing": Decimal("1100")}}
+    d = compare_monthly(bank, db, db_monthly_balances=db_monthly)[0]
+    assert d.bank_opening == Decimal("1000")
+    assert d.bank_closing == Decimal("1100")
+    assert d.db_opening == Decimal("1000")
+    assert d.db_closing == Decimal("1100")
+    assert d.balance_consistent is True
+    assert d.balance_mismatch is False
+
+
+def test_compare_monthly_balance_mismatch():
+    bank = [_txb("bank", "2026-01", "debit", "100", balance=Decimal("1100"))]
+    db = [_txb("db", "2026-01", "debit", "100")]
+    db_monthly = {"2026-01": {"opening": Decimal("1000"), "closing": Decimal("1200")}}
+    d = compare_monthly(bank, db, db_monthly_balances=db_monthly)[0]
+    assert d.balance_mismatch is True
+    assert d.closing_diff == Decimal("-100")
+    assert d.opening_diff == Decimal("0")
+
+
+def test_compare_monthly_opening_from_first_row():
+    # 第一笔余额 1100 − 其发生额 100 = 期初 1000；后续行余额链有断点（识别误差），
+    # 期初应按第一笔推导，而不是「期末 − 本月净额」（那会是 1200 − 150 = 1050）。
+    bank = [
+        _txb("bank", "2026-01", "debit", "100", balance=Decimal("1100"), day="01"),
+        _txb("bank", "2026-01", "debit", "50", balance=Decimal("1200"), day="05"),
+    ]
+    db = [_txb("db", "2026-01", "debit", "150")]
+    db_monthly = {"2026-01": {"opening": Decimal("1000"), "closing": Decimal("1200")}}
+    d = compare_monthly(bank, db, db_monthly_balances=db_monthly)[0]
+    assert d.bank_opening == Decimal("1000")
+    assert d.bank_closing == Decimal("1200")
+    assert d.opening_diff == Decimal("0")
+
+
+def test_compare_monthly_no_balance_data_is_consistent():
+    bank = [_txb("bank", "2026-01", "debit", "100")]
+    db = [_txb("db", "2026-01", "debit", "100")]
+    d = compare_monthly(bank, db)[0]
+    assert d.bank_closing is None
+    assert d.db_closing is None
+    assert d.balance_consistent is True
+    assert d.balance_mismatch is False

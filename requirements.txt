@@ -4,6 +4,9 @@ openpyxl
 xlrd
 pandas
 anthropic
+openai
 python-multipart
 pytest
 oracledb
+pymupdf
+pillow

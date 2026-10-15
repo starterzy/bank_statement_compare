@@ -10,9 +10,57 @@
   <header class="hero">
     <h1>银行流水对账</h1>
     <p class="subtitle">直连财务库 · 逐笔核对 · 月度发生额核对</p>
+    <div id="userbar" class="userbar" style="display:none">
+      <span id="who"></span>
+      <button class="btn" id="logout_btn">退出</button>
+    </div>
   </header>
 
-  <main>
+  <div id="login_card" class="card login-card">
+    <h2>登录</h2>
+    <div class="row">
+      <label class="field">用户名
+        <input type="text" id="login_user" autocomplete="username">
+      </label>
+      <label class="field">密码
+        <input type="password" id="login_pass" autocomplete="current-password">
+      </label>
+    </div>
+    <button type="button" class="btn btn-primary" id="login_btn">登录</button>
+    <div id="login_msg" class="status"></div>
+  </div>
+
+  <main id="app" style="display:none">
+    <section class="card" id="user_mgmt_card" style="display:none">
+      <h2>用户管理</h2>
+      <table id="user_table">
+        <thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>可见公司</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button type="button" class="btn btn-primary" id="user_new_btn" style="margin-top:0.75rem">新增用户</button>
+      <div id="user_form" style="display:none; margin-top:1rem;">
+        <h3 id="user_form_title">新增用户</h3>
+        <div class="row">
+          <label class="field">用户名
+            <input type="text" id="u_username">
+          </label>
+          <label class="field">密码
+            <input type="password" id="u_password" placeholder="新增必填；编辑留空不改">
+          </label>
+          <label class="field">显示名
+            <input type="text" id="u_display_name">
+          </label>
+        </div>
+        <label class="inline"><input type="checkbox" id="u_admin"> 管理员（看全部公司）</label>
+        <h3>可见公司（勾选公司子树；管理员忽略此项）</h3>
+        <div id="u_tree" class="org-tree"></div>
+        <div class="row" style="margin-top:0.75rem">
+          <button type="button" class="btn btn-primary" id="u_save">保存</button>
+          <button type="button" class="btn" id="u_cancel">取消</button>
+        </div>
+      </div>
+    </section>
+
     <section class="card">
       <h2>数据库流水查询</h2>
       <div class="row">
@@ -68,30 +116,39 @@
       <h2>对账</h2>
       <form id="form">
         <div class="row">
-          <label class="field">银行对账单
-            <input type="file" id="bank" accept=".xls,.xlsx" required>
+          <label class="field">银行对账单（Excel 或截图，可多选）
+            <input type="file" id="bank" accept=".xls,.xlsx,.png,.jpg,.jpeg,.webp,.bmp" multiple required>
+            <div id="bank_files" class="muted" style="font-size:.85rem;margin-top:.3rem;max-width:320px"></div>
           </label>
           <label class="field" id="db_upload_label" style="display:none">数据库流水
             <input type="file" id="db" accept=".xls,.xlsx,.csv">
           </label>
         </div>
+        <div class="row">
+          <label class="field">识别模型
+            <select id="model"></select>
+          </label>
+        </div>
         <fieldset id="db_source_group">
           <legend>数据库流水来源</legend>
           <label class="inline"><input type="radio" name="db_source" value="database" checked> 直连数据库（用上方所选公司/账户/月份）</label>
+          <label class="inline"><input type="radio" name="db_source" value="auto"> 自动识别（只传对账单，自动反查账户与月份）</label>
           <label class="inline"><input type="radio" name="db_source" value="upload"> 上传文件</label>
         </fieldset>
         <button type="submit" class="btn btn-primary">开始对比</button>
       </form>
       <div id="status" class="status"></div>
+      <div id="account_picker"></div>
       <div id="thinking" class="thinking" style="display:none">
-        <div class="thinking-head">DeepSeek 思考过程</div>
+        <div class="thinking-head">识别思考过程</div>
         <div id="thinking_body" class="thinking-body"></div>
       </div>
       <div id="mapping" class="mapping" style="display:none"></div>
       <div id="summary"></div>
+      <div id="detail"></div>
       <a id="download" class="download" style="display:none">下载 Excel 结果</a>
     </section>
   </main>
-  <script src="app.js"></script>
+  <script src="app.js?v=20261015-2"></script>
 </body>
 </html>
