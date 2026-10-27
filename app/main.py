@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -15,14 +16,17 @@ from .auth import (User, UserStore, create_session, current_user, destroy_sessio
 from .config import DB_COLUMN_MAP, DEFAULT_MODEL_ID, LLM_MODELS, get_model
 from .db.oracle import (fetch_bank_detail, fetch_org_tree, fetch_statement, find_accounts_by_code,
                         list_bank_accounts, list_companies, list_years, load_env)
-from .llm.client import (extract_account_no, map_bank_columns, map_bank_columns_dashscope,
-                         map_bank_columns_openai, orient_images, stream_map_bank_columns,
-                         stream_map_bank_columns_dashscope, stream_map_bank_columns_openai,
-                         stream_map_bank_image_dashscope, stream_map_bank_image_openai,
-                         stream_map_bank_images)
+from .llm.client import (analyze_statement, analyze_statement_dashscope, analyze_statement_openai,
+                         extract_account_no, map_bank_columns, map_bank_columns_dashscope,
+                         map_bank_columns_openai, orient_images, stream_analyze_statement,
+                         stream_map_bank_columns, stream_map_bank_columns_dashscope,
+                         stream_map_bank_columns_openai, stream_map_bank_image_dashscope,
+                         stream_map_bank_image_openai, stream_map_bank_images)
 from .parsing.column_mapper import build_transactions, build_transactions_from_rows
-from .parsing.excel_reader import extract_account_from_table, read_excel, sample_rows
+from .parsing.excel_reader import (extract_account_from_table, read_excel, read_grid, read_table,
+                                   sample_rows)
 from .parsing.pdf import render_pdf_pages
+from .parsing.statement import StatementAnalysis, build_from_analysis
 from .pipeline import CompareResult, run_compare, run_compare_with_db, run_matching
 from .reporting.excel_writer import write_result_excel
 from .reporting.summary import build_detail_rows
@@ -61,6 +65,37 @@ def _make_bank_mapper(cfg: dict, api_key: str):
     def mapper(headers, samples):
         return fn(headers, samples, api_key, model, base_url)
     return mapper
+
+
+def _analyze_grid(cfg: dict, key: str, grid: List[List[str]]) -> Optional[StatementAnalysis]:
+    """整表分析（同步）：表头行 + 字段列号 + 本方账号；失败返回 None 交给调用方兜底。"""
+    ncols = max((len(r) for r in grid), default=0)
+    preview = grid[:30]
+    protocol = cfg.get("protocol")
+    try:
+        if protocol == "openai":
+            d = analyze_statement_openai(preview, ncols, key, cfg["model"], cfg["base_url"])
+        elif protocol == "dashscope":
+            d = analyze_statement_dashscope(preview, ncols, key, cfg["model"], cfg["base_url"])
+        else:
+            d = analyze_statement(preview, ncols, key, cfg["model"], cfg["base_url"])
+    except Exception:
+        return None
+    return StatementAnalysis.from_dict(d)
+
+
+def _make_bank_parser(cfg: dict, key: str):
+    """非流式接口用的对账单解析器：原始网格 → 模型分析 → 流水。"""
+    def parse(path: str):
+        grid = read_grid(path)
+        analysis = _analyze_grid(cfg, key, grid)
+        if analysis is None:
+            raise RuntimeError("对账单结构分析失败")
+        txs = build_from_analysis(grid, analysis)
+        if not txs:
+            raise RuntimeError("模型给出的表头/字段无法解析出流水")
+        return txs
+    return parse
 
 
 def _scope_error(user: User, book: str) -> Optional[str]:
@@ -197,18 +232,19 @@ async def compare(bank: UploadFile = File(...), db: UploadFile = File(None),
 
     try:
         mapper = _make_bank_mapper(model_cfg, key)
+        parser = _make_bank_parser(model_cfg, key)
         if db_source == "database":
             db_txs = fetch_bank_detail(f11=account or None, book=book or None,
                                        accasoa=accasoa or None, year=year or None,
                                        month=month or None, month_to=month_to or None)
-            result = run_compare_with_db(bank_path, db_txs, mapper)
+            result = run_compare_with_db(bank_path, db_txs, mapper, bank_parser=parser)
         else:
             if db is None or db.filename is None:
                 return {"error": "缺少数据库流水文件"}
             db_path = os.path.join(tmp, db.filename)
             with open(db_path, "wb") as f:
                 f.write(await db.read())
-            result = run_compare(bank_path, db_path, mapper, DB_COLUMN_MAP)
+            result = run_compare(bank_path, db_path, mapper, DB_COLUMN_MAP, bank_parser=parser)
     except Exception as e:
         return {"error": f"对比失败: {e}"}
 
@@ -335,37 +371,76 @@ async def compare_stream(banks: List[UploadFile] = File(...), db: UploadFile = F
                     return
                 bank_txs = build_transactions_from_rows(rows, "bank")
             else:
+                # 任意表格格式（xls/xlsx/csv/txt）：先读成原始网格，再让模型整表分析
+                # （表头行、字段列号、本方账号一次问清），不再依赖固定表头/固定格式。
                 yield _ndjson({"type": "stage", "text": "读取银行对账单…"})
-                bank_raw = read_excel(bank_path)
-                if not bank_raw.headers:
-                    yield _ndjson({"type": "error", "message": "银行对账单为空或无法识别表头"})
+                grid = read_grid(bank_path)
+                if not grid:
+                    yield _ndjson({"type": "error", "message": "银行对账单为空或无法读取"})
                     return
-                if auto_mode:
-                    account_info = extract_account_from_table(bank_raw)
-
+                ncols = max((len(r) for r in grid), default=0)
                 yield _ndjson({"type": "stage",
-                               "text": f"{llm_label} 识别字段（{len(bank_raw.headers)} 列，展示思考过程）…"})
-                column_map = None
+                               "text": f"{llm_label} 分析表格结构（{len(grid)} 行 × {ncols} 列："
+                                       f"表头 / 字段 / 本方账号，展示思考过程）…"})
+                analysis_dict = None
                 if is_openai or is_dashscope:
-                    col_fn = stream_map_bank_columns_openai if is_openai else stream_map_bank_columns_dashscope
-                    async for ev in col_fn(bank_raw.headers, sample_rows(bank_raw),
-                                           key, llm_model, llm_base_url):
-                        if ev["type"] == "mapping":
-                            column_map = ev["mapping"]
-                            yield _ndjson({"type": "mapping", "mapping": column_map})
+                    ana_fn = analyze_statement_openai if is_openai else analyze_statement_dashscope
+                    try:
+                        analysis_dict = await asyncio.to_thread(
+                            ana_fn, grid[:30], ncols, key, llm_model, llm_base_url)
+                    except Exception:
+                        analysis_dict = None
                 else:
-                    async for ev in stream_map_bank_columns(bank_raw.headers, sample_rows(bank_raw),
-                                                            key, llm_model, llm_base_url):
+                    async for ev in stream_analyze_statement(grid[:30], ncols, key, llm_model, llm_base_url):
                         if ev["type"] == "thinking":
                             yield _ndjson({"type": "thinking", "text": ev["text"]})
-                        elif ev["type"] == "mapping":
-                            column_map = ev["mapping"]
-                            yield _ndjson({"type": "mapping", "mapping": column_map})
-                if not column_map:
-                    yield _ndjson({"type": "error", "message": "字段识别失败"})
-                    return
+                        elif ev["type"] == "analysis":
+                            analysis_dict = ev["analysis"]
+                analysis = StatementAnalysis.from_dict(analysis_dict) if analysis_dict else None
+                bank_txs = build_from_analysis(grid, analysis) if analysis else []
 
-                bank_txs = build_transactions(bank_raw, column_map, "bank")
+                if bank_txs:
+                    if analysis.account_no or analysis.account_name:
+                        hint = f"（依据：{analysis.evidence}）" if analysis.evidence else ""
+                        yield _ndjson({"type": "stage",
+                                       "text": f"识别到本方账号：{analysis.account_no or '—'} / "
+                                               f"{analysis.account_name or '—'}{hint}"})
+                    if auto_mode:
+                        account_info = {"account_no": analysis.account_no,
+                                        "account_name": analysis.account_name}
+                else:
+                    # 兜底：模型分析不可用时回到「启发式表头 + 字段映射提示词」
+                    yield _ndjson({"type": "stage", "text": "模型分析未得出可用流水，改用表头启发式识别…"})
+                    bank_raw = read_table(bank_path)
+                    if not bank_raw.headers:
+                        yield _ndjson({"type": "error", "message": "银行对账单为空或无法识别表头"})
+                        return
+                    if auto_mode:
+                        account_info = extract_account_from_table(bank_raw)
+
+                    yield _ndjson({"type": "stage",
+                                   "text": f"{llm_label} 识别字段（{len(bank_raw.headers)} 列）…"})
+                    column_map = None
+                    if is_openai or is_dashscope:
+                        col_fn = stream_map_bank_columns_openai if is_openai else stream_map_bank_columns_dashscope
+                        async for ev in col_fn(bank_raw.headers, sample_rows(bank_raw),
+                                               key, llm_model, llm_base_url):
+                            if ev["type"] == "mapping":
+                                column_map = ev["mapping"]
+                                yield _ndjson({"type": "mapping", "mapping": column_map})
+                    else:
+                        async for ev in stream_map_bank_columns(bank_raw.headers, sample_rows(bank_raw),
+                                                                key, llm_model, llm_base_url):
+                            if ev["type"] == "thinking":
+                                yield _ndjson({"type": "thinking", "text": ev["text"]})
+                            elif ev["type"] == "mapping":
+                                column_map = ev["mapping"]
+                                yield _ndjson({"type": "mapping", "mapping": column_map})
+                    if not column_map:
+                        yield _ndjson({"type": "error", "message": "字段识别失败"})
+                        return
+
+                    bank_txs = build_transactions(bank_raw, column_map, "bank")
 
             # ---- 阶段二：解析数据库侧（auto 模式先反查账户 + 自动月份） ----
             db_monthly_balances = None
@@ -373,7 +448,9 @@ async def compare_stream(banks: List[UploadFile] = File(...), db: UploadFile = F
                 if auto_mode:
                     code = (account_info or {}).get("account_no") or ""
                     if not code:
-                        yield _ndjson({"type": "error", "message": "未能从对账单识别到银行账号"})
+                        yield _ndjson({"type": "error",
+                                       "message": "未能从对账单识别到本方银行账号（对账单中没有本方账号信息）；"
+                                                  "请在上方手动选择公司/账户后重试，或改用「上传文件」模式"})
                         return
                     yield _ndjson({"type": "stage", "text": f"按账号 {code} 反查账户…"})
                     if user.is_admin:

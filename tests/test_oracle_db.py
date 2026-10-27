@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from app.db.oracle import get_db_config, load_env, map_db_rows
+from app.db.oracle import _code_matches, get_db_config, load_env, map_db_rows
 
 
 def test_load_env_handles_special_chars(tmp_path):
@@ -34,6 +34,24 @@ def test_get_db_config_defaults():
     assert cfg["DB_PERIOD_TO"] == "12"
     assert "DB_ACCOUNT_CODE" not in cfg
     assert "DB_DOCFREE_F11" not in cfg
+
+
+def test_code_matches_exact():
+    assert _code_matches("720101040019411", "720101040019411")
+    assert _code_matches("720101040019411", "7201 0104 0019 411")  # NC 里带空格/横线也算同一个
+
+
+def test_code_matches_statement_region_prefix():
+    """对账单印「19-720101040019411」，NC 只存后 15 位 720101040019411。"""
+    assert _code_matches("19720101040019411", "720101040019411")
+    assert _code_matches("720101040019411", "19-720101040019411")
+
+
+def test_code_matches_rejects_short_or_other():
+    assert not _code_matches("411", "720101040019411")            # 太短，容易误伤
+    assert not _code_matches("", "720101040019411")
+    assert not _code_matches("6228481079410825775", "720101040019411")  # 对方账号
+    assert not _code_matches("7201010400194110", "720101040019411")     # 多一位不算
 
 
 def test_map_db_rows_builds_transactions():

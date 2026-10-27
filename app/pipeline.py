@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from .config import MAX_MERGE_SIZE
 from .matching.engine import (MatchResult, diagnose_amount_suspects, match_transactions,
@@ -31,19 +31,25 @@ def _run(bank_txs: List[Transaction], db_txs: List[Transaction],
                          monthly_diffs=monthly_diffs, summary=summary)
 
 
-def run_compare(bank_path: str, db_path: str, bank_mapper: Callable, db_column_map: dict) -> CompareResult:
-    bank_raw = read_excel(bank_path)
+def run_compare(bank_path: str, db_path: str, bank_mapper: Callable, db_column_map: dict,
+                bank_parser: Optional[Callable] = None) -> CompareResult:
+    bank_txs = bank_parser(bank_path) if bank_parser else _parse_bank_legacy(bank_path, bank_mapper)
     db_raw = read_excel(db_path)
-    bank_txs = map_bank_via_llm(bank_raw, bank_mapper)
     db_txs = build_transactions(db_raw, db_column_map, "db")
     return _run(bank_txs, db_txs)
 
 
-def run_compare_with_db(bank_path: str, db_txs: List[Transaction], bank_mapper: Callable) -> CompareResult:
+def run_compare_with_db(bank_path: str, db_txs: List[Transaction], bank_mapper: Callable,
+                        bank_parser: Optional[Callable] = None) -> CompareResult:
     """数据库流水由 DB 直连查询得到（不再读文件）。"""
-    bank_raw = read_excel(bank_path)
-    bank_txs = map_bank_via_llm(bank_raw, bank_mapper)
+    bank_txs = bank_parser(bank_path) if bank_parser else _parse_bank_legacy(bank_path, bank_mapper)
     return _run(bank_txs, db_txs)
+
+
+def _parse_bank_legacy(bank_path: str, bank_mapper: Callable) -> List[Transaction]:
+    """兜底：表头启发式 + 字段映射提示词（模型整表分析不可用时）。"""
+    bank_raw = read_excel(bank_path)
+    return map_bank_via_llm(bank_raw, bank_mapper)
 
 
 def run_matching(bank_txs: List[Transaction], db_txs: List[Transaction],

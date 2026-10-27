@@ -234,6 +234,27 @@ def list_bank_accounts(cfg: Optional[Dict[str, str]] = None, org: Optional[str] 
         conn.close()
 
 
+def _norm_code(v) -> str:
+    return re.sub(r"\D", "", str(v or ""))
+
+
+def _code_matches(norm: str, nc_code: str) -> bool:
+    """两侧账号规范化后是否为同一个账户。
+
+    对账单与 NC 的账号写法可能不同：农行对账单印「19-720101040019411」，
+    NC 只存后 15 位「720101040019411」，也可能反过来。因此任一方向的后缀
+    包含即算命中；短账号（<9 位）不参与后缀匹配，避免「411」命中一大片。
+    """
+    nc = _norm_code(nc_code)
+    n = _norm_code(norm)
+    if not nc or not n:
+        return False
+    if nc == n:
+        return True
+    return ((len(nc) >= 9 and n.endswith(nc)) or
+            (len(n) >= 9 and nc.endswith(n)))
+
+
 def find_accounts_by_code(code: str, cfg: Optional[Dict[str, str]] = None,
                           org_roots: Optional[List[str]] = None) -> List[Dict[str, str]]:
     """按银行账号（bd_bankaccbas.code）反查账户，返回候选列表。
@@ -241,12 +262,13 @@ def find_accounts_by_code(code: str, cfg: Optional[Dict[str, str]] = None,
     每个候选：{"code": 账号, "name": 账户名, "org": pk_org, "org_name": 公司名,
               "org_code": 公司编码, "f11": pk_bankaccsub, "book": 账簿, "accasoa": 科目}。
     账号先规范化成纯数字再精确匹配（对账单可能含空格/横线）；只在启用账户里搜。
+    精确匹配不到时（对账单带「19-」这类省市前缀、NC 只存后几位），退回本地后缀比对。
     org_roots 用于按用户可见范围过滤：None=不过滤，[]=空，非空=只保留这些子树下的公司。
     同一账号可能命中多个公司（或一账号多子户），返回全部候选由调用方决定选哪个。
     """
     if org_roots is not None and not org_roots:
         return []
-    norm = re.sub(r"\D", "", code or "")
+    norm = _norm_code(code)
     if not norm:
         return []
     cfg = cfg or get_db_config()
@@ -264,18 +286,25 @@ def find_accounts_by_code(code: str, cfg: Optional[Dict[str, str]] = None,
             "  AND a.dispname LIKE '1002%' AND a.name = '人民币' "
             "WHERE b.enablestate IN (1, 2) "
             "AND o.pk_group = :org_group "
-            "AND REGEXP_REPLACE(b.code, '[^0-9]', '') = :norm "
         )
-        params: Dict[str, str] = {"org_group": GROUP_ORG, "norm": norm}
+        params: Dict[str, str] = {"org_group": GROUP_ORG}
         if org_roots:
             binds = {f"r{i}": r for i, r in enumerate(org_roots)}
             inlist = ", ".join(f":r{i}" for i in range(len(org_roots)))
             sql += ("AND o.pk_org IN (SELECT pk_org FROM NCCDATA.org_orgs "
                     f"START WITH pk_org IN ({inlist}) CONNECT BY NOCYCLE PRIOR pk_org = pk_fatherorg) ")
             params.update(binds)
-        cur.execute(sql, params)
-        return [{"code": r[0], "name": r[1], "org": r[2], "org_name": r[3], "org_code": r[4],
-                 "f11": r[5], "book": r[6], "accasoa": r[7]} for r in cur.fetchall()]
+
+        def _rows() -> List[Dict[str, str]]:
+            return [{"code": r[0], "name": r[1], "org": r[2], "org_name": r[3], "org_code": r[4],
+                     "f11": r[5], "book": r[6], "accasoa": r[7]} for r in cur.fetchall()]
+
+        cur.execute(sql + "AND REGEXP_REPLACE(b.code, '[^0-9]', '') = :norm", {**params, "norm": norm})
+        rows = _rows()
+        if not rows:
+            cur.execute(sql, params)  # 账号写法不一致：取全部启用账户本地比对
+            rows = [r for r in _rows() if _code_matches(norm, r["code"])]
+        return rows
     finally:
         conn.close()
 

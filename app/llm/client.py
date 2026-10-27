@@ -25,6 +25,65 @@ def build_prompt(headers: List[str], samples: List[Dict], fields: List[str]) -> 
     return "\n".join(lines)
 
 
+_ANALYZE_EXAMPLE = {
+    "header_row": 8,
+    "columns": {"date": 11, "time": 12, "debit": None, "credit": None, "amount": 14,
+                "balance": 15, "counterparty_in": 6, "counterparty_out": 10,
+                "counterparty_account_in": 5, "counterparty_account_out": 9,
+                "summary": 2, "transaction_id": 18},
+    "amount_style": "signed",
+    "amount_sign": {"positive": "in", "negative": "out"},
+    "direction_column": 1,
+    "direction_values": {"来账": "in", "往账": "out"},
+    "own_account": {
+        "account_no": "376674731895",
+        "account_name": "某某有限公司",
+        "evidence": "第1行第2列：查询账号[ Inquirer account number ] = 376674731895",
+    },
+}
+
+
+def build_analyze_prompt(grid_preview: List[List[str]], ncols: int) -> str:
+    """整表分析提示词：表头行、字段列号、本方账号一次问清，避免「表头认错→全错」。"""
+    rows = "\n".join(
+        f"第{i}行: " + json.dumps([c for c in row], ensure_ascii=False)
+        for i, row in enumerate(grid_preview, 1))
+    return "\n".join([
+        "你是银行对账单解析助手。下面是银行对账单最前面的若干行原始表格（单元格原样保留，"
+        f"行号从 1 开始，共 {ncols} 列）：",
+        rows,
+        "",
+        "请回答三个问题，只输出一个 JSON 对象：",
+        "1) header_row：表头（列名）所在的行号（1 起）。标题行、账户信息行都不是表头；没有表头就填第一行数据行。",
+        "2) columns：标准字段 → 列号（1 起，没有该列填 null）。标准字段：" + "、".join(_ANALYZE_FIELDS),
+        "   付款人/收款人分两列的导出，用 counterparty_in / counterparty_out"
+        "（进账取哪一方、出账取哪一方）、counterparty_account_in / counterparty_account_out 表示。",
+        "3) own_account：本方账号与户名。**本方账号可能出现在任何位置**——标题行、表头之前的账户信息行、"
+        "表头里某一列（每行取值相同），或付款人/收款人账号列里的固定一方（结合「交易类型」判断："
+        "来账时收款人是本方、往账时付款人是本方）。",
+        "   必须给出 evidence：在哪一行哪一列看到的、原文是什么；确实找不到就返回 null 并说明理由，不要猜。",
+        "   账号按原文输出，保留「19-」这类前缀与横线，不要补零、不要截断。",
+        "",
+        "金额与方向口径（必须遵守）：本系统统一用「账簿资产口径」，debit=借=收(钱进来)，credit=贷=付(钱出去)。",
+        "- 单列带符号金额：amount_style=signed，并给出 amount_sign（正号/负号各对应 in 还是 out）。",
+        "- 两列金额：收入列→debit、支出列→credit，用 amount_style=income_expense；"
+        "若两列是银行口径的借方/贷方，用 debit_credit（银行借方=支取→credit，银行贷方=存入→debit）。",
+        "- 方向若由「交易类型」这类列决定，填 direction_column 与 direction_values（如 {\"来账\": \"in\", \"往账\": \"out\"}）。",
+        "",
+        "输出 JSON 结构示例：",
+        json.dumps(_ANALYZE_EXAMPLE, ensure_ascii=False, indent=2),
+    ])
+
+
+_ANALYZE_FIELDS = [
+    "date", "time", "debit", "credit", "amount", "balance",
+    "counterparty", "counterparty_account", "summary", "remark",
+    "voucher_no", "detail_index", "transaction_id", "currency",
+    "counterparty_in", "counterparty_out",
+    "counterparty_account_in", "counterparty_account_out",
+]
+
+
 def _parse_json(text: str) -> Dict:
     text = (text or "").strip()
     if text.startswith("```"):
@@ -211,6 +270,82 @@ async def stream_map_bank_columns_dashscope(headers: List[str], samples: List[Di
     if not text.strip():
         raise RuntimeError("模型未返回字段识别结果")
     yield {"type": "mapping", "mapping": _parse_json(text)}
+
+
+def analyze_statement(grid_preview: List[List[str]], ncols: int, api_key: str, model: str,
+                      base_url: str = "https://api.deepseek.com/anthropic",
+                      max_tokens: int = 32000) -> Dict:
+    """整表分析（Anthropic 协议），返回表头行/字段列号/本方账号的 JSON。"""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+    msg = {"role": "user", "content": build_analyze_prompt(grid_preview, ncols)}
+    text = _collect_stream_text(client, msg, model, max_tokens)
+    if not text.strip():
+        text = _collect_stream_text(client, msg, model, 4000, {"type": "disabled"})
+    if not text.strip():
+        raise RuntimeError("模型未返回对账单结构分析结果")
+    return _parse_json(text)
+
+
+async def stream_analyze_statement(grid_preview: List[List[str]], ncols: int, api_key: str,
+                                   model: str, base_url: str = "https://api.deepseek.com/anthropic",
+                                   max_tokens: int = 32000):
+    """流式整表分析：产出 thinking 事件与最终的 {"type": "analysis", "analysis": {...}}。"""
+    import anthropic
+
+    client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
+    msg = {"role": "user", "content": build_analyze_prompt(grid_preview, ncols)}
+    text_parts: List[str] = []
+    async with client.messages.stream(model=model, max_tokens=max_tokens, messages=[msg]) as stream:
+        async for event in stream:
+            if getattr(event, "type", None) != "content_block_delta":
+                continue
+            delta = getattr(event, "delta", None)
+            d_type = getattr(delta, "type", None)
+            if d_type == "thinking_delta":
+                yield {"type": "thinking", "text": getattr(delta, "thinking", "") or ""}
+            elif d_type == "text_delta":
+                text_parts.append(getattr(delta, "text", "") or "")
+    text = "".join(text_parts)
+    if text.strip():
+        yield {"type": "analysis", "analysis": _parse_json(text)}
+        return
+    yield {"type": "thinking", "text": "\n（思考过长，已切换为直接分析）\n"}
+    resp = await client.messages.create(model=model, max_tokens=4000,
+                                        thinking={"type": "disabled"}, messages=[msg])
+    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    if not text.strip():
+        raise RuntimeError("模型未返回对账单结构分析结果")
+    yield {"type": "analysis", "analysis": _parse_json(text)}
+
+
+def analyze_statement_openai(grid_preview: List[List[str]], ncols: int, api_key: str, model: str,
+                             base_url: str, max_tokens: int = 32000) -> Dict:
+    """整表分析（OpenAI 兼容协议）。"""
+    import openai
+
+    client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": build_analyze_prompt(grid_preview, ncols)}],
+    )
+    text = (resp.choices[0].message.content or "").strip() if resp.choices else ""
+    if not text:
+        raise RuntimeError("模型未返回对账单结构分析结果")
+    return _parse_json(text)
+
+
+def analyze_statement_dashscope(grid_preview: List[List[str]], ncols: int, api_key: str,
+                                model: str, base_url: str, max_tokens: int = 32000) -> Dict:
+    """整表分析（阿里云百炼原生接口）。"""
+    text = _dashscope_call(base_url, api_key, model,
+                           [{"role": "user", "content": build_analyze_prompt(grid_preview, ncols)}],
+                           max_tokens)
+    if not text.strip():
+        raise RuntimeError("模型未返回对账单结构分析结果")
+    return _parse_json(text)
 
 
 def build_image_prompt() -> str:
