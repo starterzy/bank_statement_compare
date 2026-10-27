@@ -144,15 +144,33 @@ def _sniff_delimiter(sample: str) -> str:
 
 _CSV_EXTS = (".csv", ".txt", ".tsv")
 
+# 按文件内容而不是扩展名判断真实格式：不少银行/业务系统导出的「.csv」其实是
+# Excel 97-2003（OLE2 复合文档）或 xlsx（zip）二进制，按文本读会报
+# new-line character seen in unquoted field 或读出乱码。
+_OLE2_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_ZIP_MAGIC = b"PK\x03\x04"
+
+
+def _excel_grid(path: str, engine: str) -> List[List[str]]:
+    df = pd.read_excel(path, header=None, dtype=object, engine=engine)
+    return [[_cell_str(c) for c in row] for row in df.values.tolist()]
+
 
 def read_grid(path: str) -> List[List[str]]:
     """把任意表格文件读成原始二维网格（单元格字符串），不判断表头、不抽账号。
 
-    只负责「把文件变成表」：Excel 用 pandas，CSV/TXT 做编码与分隔符嗅探。
+    只负责「把文件变成表」：先按魔数分流（OLE2→xlrd、zip→openpyxl），
+    否则按扩展名走 CSV/TXT（编码与分隔符嗅探）或 Excel。
     表头、字段、本方账号一律交给模型分析（见 app/parsing/statement.py）。
     """
     ext = os.path.splitext(path)[1].lower()
-    if ext in _CSV_EXTS:
+    with open(path, "rb") as f:
+        head = f.read(8)
+    if head.startswith(_OLE2_MAGIC):
+        rows = _excel_grid(path, "xlrd")
+    elif head.startswith(_ZIP_MAGIC):
+        rows = _excel_grid(path, "openpyxl")
+    elif ext in _CSV_EXTS:
         with open(path, "rb") as f:
             text = _decode(f.read())
         delim = _sniff_delimiter(text[:4096])
@@ -161,9 +179,7 @@ def read_grid(path: str) -> List[List[str]]:
         rows = [[(c or "").strip() for c in r]
                 for r in csv.reader(io.StringIO(text, newline=""), delimiter=delim)]
     else:
-        engine = "xlrd" if ext == ".xls" else "openpyxl"
-        df = pd.read_excel(path, header=None, dtype=object, engine=engine)
-        rows = [[_cell_str(c) for c in row] for row in df.values.tolist()]
+        rows = _excel_grid(path, "xlrd" if ext == ".xls" else "openpyxl")
     return [r for r in rows if any(c for c in r)]   # 丢掉整行空白
 
 

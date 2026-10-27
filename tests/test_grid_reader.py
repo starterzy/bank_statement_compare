@@ -70,6 +70,39 @@ def test_read_grid_csv_quoted_multiline_cell(tmp_path):
     assert rows[1][1] == "100"
 
 
+def test_read_grid_csv_extension_but_xlsx_content(tmp_path):
+    """扩展名是 .csv、内容其实是 xlsx（zip 魔数）时按内容读。"""
+    p = tmp_path / "TQP_test.csv"
+    pd.DataFrame([["账户明细", None], ["交易时间", "金额", None],
+                  ["2026-01-08 15:51:12", 4161.47, None]]).to_excel(
+        p, header=False, index=False, engine="openpyxl")
+    assert p.read_bytes()[:2] == b"PK"
+
+    rows = read_grid(str(p))
+
+    assert rows[0][0] == "账户明细"
+    assert rows[2][0] == "2026-01-08 15:51:12"
+    assert rows[2][1] == "4161.47"
+
+
+def test_read_grid_csv_extension_but_ole2_content_uses_xls_engine(tmp_path, monkeypatch):
+    """银行导出常见的「.csv 扩展名 + Excel 97-2003 内容」（OLE2 魔数）应交给 xlrd。"""
+    p = tmp_path / "TQP_test2.csv"
+    p.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 512)
+    seen = {}
+
+    def fake_read_excel(path, **kwargs):
+        seen.update(kwargs)
+        return pd.DataFrame([["账户明细"], ["交易时间", "金额"]])
+
+    monkeypatch.setattr("app.parsing.excel_reader.pd.read_excel", fake_read_excel)
+
+    rows = read_grid(str(p))
+
+    assert seen.get("engine") == "xlrd"
+    assert rows[1] == ["交易时间", "金额"]
+
+
 def test_read_grid_xlsx(tmp_path):
     p = tmp_path / "bank.xlsx"
     pd.DataFrame([["账户明细", None], ["交易时间", "支出金额"],
