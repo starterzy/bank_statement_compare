@@ -14,14 +14,29 @@ def monthly_totals(txs: List[Transaction]) -> Dict[str, Dict[str, Decimal]]:
     return totals
 
 
-def _last_balance_by_month(txs: List[Transaction]) -> Dict[str, Decimal]:
-    """取每月「最后一笔」的余额（按日期稳定排序，同日内保持原始顺序），作为该月期末余额。
+def _chronological(txs: List[Transaction]) -> List[Transaction]:
+    """按发生时间先后返回流水。
 
-    银行对账单的余额列是「交易后余额」，每月最后一行即当月期末余额；
+    银行导出常是倒序（新→旧），此时同一天内也是「后发生的在前」。只按 date
+    做稳定排序会把同一天里最早的一笔当成最后一笔，月末余额随之错位。
+    这里用相邻日期是升多还是降多判断整份文件的排序方向，再决定同一天内的次序。
+    """
+    items = list(enumerate(txs))
+    desc = sum(1 for (_, a), (_, b) in zip(items, items[1:]) if b.date < a.date)
+    asc = sum(1 for (_, a), (_, b) in zip(items, items[1:]) if b.date > a.date)
+    if desc > asc:
+        return [t for _, t in sorted(items, key=lambda p: (p[1].date, -p[0]))]
+    return [t for _, t in sorted(items, key=lambda p: (p[1].date, p[0]))]
+
+
+def _last_balance_by_month(txs: List[Transaction]) -> Dict[str, Decimal]:
+    """取每月「最后一笔」的余额（按时间先后），作为该月期末余额。
+
+    银行对账单的余额列是「交易后余额」，每月最后一笔即当月期末余额；
     若余额缺失则该月不参与余额对比。
     """
     last: Dict[str, Decimal] = {}
-    for t in sorted(txs, key=lambda t: t.date):
+    for t in _chronological(txs):
         if t.balance is not None:
             last[t.month] = t.balance
     return last
@@ -35,7 +50,7 @@ def _first_opening_by_month(txs: List[Transaction]) -> Dict[str, Optional[Decima
     首笔余额缺失则该月无法推导期初（记 None，不参与余额对比）。
     """
     first: Dict[str, Transaction] = {}
-    for t in sorted(txs, key=lambda t: t.date):
+    for t in _chronological(txs):
         if t.month not in first:
             first[t.month] = t
     opening: Dict[str, Optional[Decimal]] = {}

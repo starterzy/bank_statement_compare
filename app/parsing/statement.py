@@ -111,9 +111,12 @@ def build_from_analysis(grid: List[List[str]], analysis: StatementAnalysis) -> L
     cols = analysis.columns
     start = analysis.header_row or 1        # 数据从表头下一行开始
     txs: List[Transaction] = []
+    date_col = cols.get("date")
+    time_col = cols.get("time")
     for row in grid[start:]:
-        date_text = _cell(row, cols.get("date"))
-        time_text = _cell(row, cols.get("time"))
+        date_text = _cell(row, date_col)
+        # date / time 指向同一列时（如「交易时间」列自带 2025-12-31-22:11），不要再拼接一遍
+        time_text = _cell(row, time_col) if time_col and time_col != date_col else ""
         if date_text and time_text and " " not in date_text:
             date_text = f"{date_text} {time_text}"
         d = parse_date(date_text)

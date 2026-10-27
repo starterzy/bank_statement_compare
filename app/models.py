@@ -72,6 +72,7 @@ def parse_date(value) -> Optional[date]:
     for fmt in (
         "%Y%m%d %H:%M:%S", "%Y%m%d %H:%M", "%Y%m%d",
         "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+        "%Y-%m-%d-%H:%M:%S", "%Y-%m-%d-%H:%M",   # 浙商银行导出：2025-12-31-22:11
         "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d",
         "%Y.%m.%d %H:%M:%S", "%Y.%m.%d",
     ):

@@ -95,6 +95,39 @@ def test_compare_monthly_opening_from_first_row():
     assert d.opening_diff == Decimal("0")
 
 
+def test_compare_monthly_descending_file_picks_true_month_end():
+    """导出文件整体倒序（新→旧）时，同一天内也是「后发生的在前」，
+    月末余额要取当天第一行的余额，而不是按 date 稳定排序后的最后一行。"""
+    bank = [
+        _txb("bank", "2026-01", "credit", "100", balance=Decimal("900"), day="30"),  # 当天最后一笔
+        _txb("bank", "2026-01", "credit", "50", balance=Decimal("1000"), day="30"),  # 当天较早一笔
+        _txb("bank", "2026-01", "debit", "100", balance=Decimal("1050"), day="10"),
+    ]
+    db = [_txb("db", "2026-01", "debit", "100")]
+    db_monthly = {"2026-01": {"opening": Decimal("950"), "closing": Decimal("900")}}
+
+    d = compare_monthly(bank, db, db_monthly_balances=db_monthly)[0]
+
+    assert d.bank_closing == Decimal("900")
+    assert d.bank_opening == Decimal("950")
+    assert d.balance_consistent is True
+
+
+def test_compare_monthly_ascending_file_picks_last_row_of_day():
+    bank = [
+        _txb("bank", "2026-01", "debit", "100", balance=Decimal("1050"), day="10"),
+        _txb("bank", "2026-01", "credit", "50", balance=Decimal("1000"), day="30"),
+        _txb("bank", "2026-01", "credit", "100", balance=Decimal("900"), day="30"),
+    ]
+    db = [_txb("db", "2026-01", "debit", "100")]
+    db_monthly = {"2026-01": {"opening": Decimal("950"), "closing": Decimal("900")}}
+
+    d = compare_monthly(bank, db, db_monthly_balances=db_monthly)[0]
+
+    assert d.bank_closing == Decimal("900")
+    assert d.bank_opening == Decimal("950")
+
+
 def test_compare_monthly_no_balance_data_is_consistent():
     bank = [_txb("bank", "2026-01", "debit", "100")]
     db = [_txb("db", "2026-01", "debit", "100")]

@@ -77,6 +77,33 @@ def test_build_income_expense_columns():
     assert txs[1].debit_amount == Decimal("500.00")     # 收入 → 收（借）
 
 
+def test_build_datetime_in_single_column():
+    """浙商银行导出：交易时间列写作 2025-12-31-22:11，date/time 都指向同一列。"""
+    grid = [
+        ["浙商银行企业账户明细"],
+        ["账户名称：衢州呈华房地产开发有限公司", "账号：3410020010120100229633"],
+        ["流水号", "交易时间", "摘要", "发生金额(元)", "交易后余额(元)"],
+        ["46717583120251231", "2025-12-31-22:11", "付息", "-47269.44", "166775.4"],
+        ["30585834420251226", "2025-12-26-08:59", "转入", "30000000", "31254593.62"],
+    ]
+    analysis = StatementAnalysis.from_dict({
+        "header_row": 3,
+        "columns": {"date": 2, "time": 2, "amount": 4, "balance": 5, "summary": 3},
+        "amount_style": "signed",
+        "amount_sign": {"positive": "in", "negative": "out"},
+        "own_account": {"account_no": "3410020010120100229633"},
+    })
+
+    txs = build_from_analysis(grid, analysis)
+
+    assert len(txs) == 2
+    assert txs[0].date == "2025-12-31"
+    assert txs[0].month == "2025-12"
+    assert txs[0].credit_amount == Decimal("47269.44")   # 负数 → 付
+    assert txs[1].debit_amount == Decimal("30000000.00")
+    assert txs[1].balance == Decimal("31254593.62")
+
+
 def test_build_skips_rows_without_date_or_amount():
     grid = [["日期", "金额"], ["合计", "100"], ["20250102", "0"]]
     analysis = StatementAnalysis.from_dict({
