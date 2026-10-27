@@ -156,8 +156,10 @@ def read_grid(path: str) -> List[List[str]]:
         with open(path, "rb") as f:
             text = _decode(f.read())
         delim = _sniff_delimiter(text[:4096])
+        # newline=""：让 csv 自己做通用换行（\r、\n、\r\n）。默认 newline="\n" 时
+        # 只用 \r 换行的导出文件整份会被当成一行，报 new-line character seen in unquoted field。
         rows = [[(c or "").strip() for c in r]
-                for r in csv.reader(io.StringIO(text), delimiter=delim)]
+                for r in csv.reader(io.StringIO(text, newline=""), delimiter=delim)]
     else:
         engine = "xlrd" if ext == ".xls" else "openpyxl"
         df = pd.read_excel(path, header=None, dtype=object, engine=engine)

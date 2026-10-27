@@ -48,6 +48,28 @@ def test_read_grid_csv_semicolon_and_tab_delimiters(tmp_path):
     assert read_grid(str(tab))[1] == ["20250102", "100.00"]
 
 
+def test_read_grid_csv_cr_only_line_endings(tmp_path):
+    """老式 Mac / 部分银行导出只用 \\r 换行，csv 读取必须开 newline='' 才能切行。"""
+    p = tmp_path / "bank.csv"
+    p.write_bytes("日期,金额\r20250102,100.00\r20250103,-50\r".encode("utf-8"))
+
+    rows = read_grid(str(p))
+
+    assert rows == [["日期", "金额"], ["20250102", "100.00"], ["20250103", "-50"]]
+
+
+def test_read_grid_csv_quoted_multiline_cell(tmp_path):
+    """引号内的换行应原样保留为一个单元格，不报 new-line character。"""
+    p = tmp_path / "bank.csv"
+    p.write_bytes('摘要,金额\r"第一行\r\n第二行",100\r'.encode("utf-8"))
+
+    rows = read_grid(str(p))
+
+    assert rows[0] == ["摘要", "金额"]
+    assert rows[1][0] == "第一行\r\n第二行"
+    assert rows[1][1] == "100"
+
+
 def test_read_grid_xlsx(tmp_path):
     p = tmp_path / "bank.xlsx"
     pd.DataFrame([["账户明细", None], ["交易时间", "支出金额"],
