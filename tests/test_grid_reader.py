@@ -85,6 +85,28 @@ def test_read_grid_csv_extension_but_xlsx_content(tmp_path):
     assert rows[2][1] == "4161.47"
 
 
+def test_read_grid_csv_extension_but_real_xls_content(tmp_path):
+    """真实 BIFF(.xls) 内容配 .csv 扩展名——银行导出 TQP_*.csv 就是这种。"""
+    import xlwt
+
+    p = tmp_path / "TQP_His_test.csv"
+    wb = xlwt.Workbook()
+    ws = wb.add_sheet("Sheet1")
+    ws.write(0, 0, "账户明细")
+    ws.write(1, 0, "交易时间")
+    ws.write(1, 1, "金额")
+    ws.write(2, 0, "2026-01-08 15:51:12")
+    ws.write(2, 1, 4161.47)
+    wb.save(str(p))
+    assert p.read_bytes()[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+    rows = read_grid(str(p))
+
+    assert rows[0][0] == "账户明细"
+    assert rows[2][0] == "2026-01-08 15:51:12"
+    assert rows[2][1] == "4161.47"
+
+
 def test_read_grid_csv_extension_but_ole2_content_uses_xls_engine(tmp_path, monkeypatch):
     """银行导出常见的「.csv 扩展名 + Excel 97-2003 内容」（OLE2 魔数）应交给 xlrd。"""
     p = tmp_path / "TQP_test2.csv"
